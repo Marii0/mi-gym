@@ -4,6 +4,19 @@
 (function () {
   const G = window.GYM, S = G.Store;
   let ctx = null, nodos = [], finAudio = 0, candado = null;
+  // En la app nativa, además del pitido se programa una notificación con sonido:
+  // suena aunque el iPhone esté bloqueado o la app esté en segundo plano.
+  const NATIVO = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const P = NATIVO ? window.Capacitor.Plugins : {};
+  function permiso() { if (NATIVO && P.LocalNotifications) P.LocalNotifications.requestPermissions().catch(() => {}); }
+  function avisar(segundos, texto) {
+    if (!NATIVO || !P.LocalNotifications || !S.state.settings.sonido) return;
+    P.LocalNotifications.schedule({ notifications: [{
+      id: 1, title: 'Descanso terminado', body: texto || 'Sigue con tu entrenamiento', sound: 'pitido.wav',
+      schedule: { at: new Date(Date.now() + segundos * 1000 + 900), allowWhileIdle: true }
+    }] }).catch(() => {});
+  }
+  function quitarAviso() { if (NATIVO && P.LocalNotifications) P.LocalNotifications.cancel({ notifications: [{ id: 1 }] }).catch(() => {}); }
 
   function tipoSesion() {
     // "ambient" se mezcla con tu música pero respeta el modo silencio del iPhone.
@@ -38,11 +51,14 @@
   function cancelar() {
     nodos.forEach(n => { try { n.disconnect(); } catch (e) { /* ya estaba suelto */ } });
     nodos = []; finAudio = 0;
+    quitarAviso();
   }
 
   // Programa el pitido para dentro de "segundos" (con 3, 2, 1 antes si está activado).
-  function programar(segundos) {
-    cancelar();
+  function programar(segundos, texto) {
+    nodos.forEach(n => { try { n.disconnect(); } catch (e) { /* ya estaba suelto */ } });
+    nodos = []; finAudio = 0;
+    avisar(segundos, texto);
     if (!preparar()) return;
     const t = ctx.currentTime + Math.max(0.05, segundos);
     finAudio = t;
@@ -64,11 +80,15 @@
   // Mantiene la pantalla encendida durante el entrenamiento para que el pitido no se corte.
   async function pantalla(encender) {
     try {
+      if (NATIVO && P.KeepAwake) {
+        if (encender && S.state.settings.pantalla) await P.KeepAwake.keepAwake(); else await P.KeepAwake.allowSleep();
+        return;
+      }
       if (encender && S.state.settings.pantalla && navigator.wakeLock) {
         if (!candado || candado.released) candado = await navigator.wakeLock.request('screen');
       } else if (!encender && candado) { await candado.release(); candado = null; }
     } catch (e) { /* el sistema puede negarlo (batería baja) */ }
   }
 
-  G.Audio = { preparar, programar, cancelar, sonoATiempo, ahora, pantalla };
+  G.Audio = { preparar, programar, cancelar, sonoATiempo, ahora, pantalla, permiso, quitarAviso, nativo: NATIVO };
 })();

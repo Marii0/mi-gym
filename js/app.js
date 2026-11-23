@@ -168,7 +168,7 @@
   // ---------- Entrenamiento ----------
   function empezar(d) {
     const dia = st().routine.dias[d];
-    A.preparar();
+    A.preparar(); A.permiso();
     st().active = {
       fecha: S.hoy(), dia: d, nombre: dia.nombre, inicio: Date.now(), i: 0, finDescanso: 0, totalDescanso: 0,
       items: dia.items.map(it => {
@@ -241,9 +241,13 @@
   function iniciarDescanso(seg) {
     const a = st().active;
     a.totalDescanso = seg; a.finDescanso = Date.now() + seg * 1000; S.guardar();
-    A.programar(seg);
+    A.programar(seg, textoSigue());
     toastEl.hidden = true;
     render(); scrollTo(0, 0); mostrarDescanso();
+  }
+  function textoSigue() {
+    const a = st().active, it = a.items[a.i], k = it.sets.findIndex(x => !x.ok);
+    return 'Sigue: ' + it.nombre + (k >= 0 ? ', serie ' + (k + 1) + ' de ' + it.sets.length : '');
   }
   function mostrarDescanso() {
     const a = st().active, it = a.items[a.i], k = it.sets.findIndex(x => !x.ok);
@@ -269,9 +273,13 @@
   function finDescanso(sonar) {
     const a = st().active;
     pararTick();
+    // En la app nativa, si el descanso acabó hace rato, la notificación ya sonó: no repetir el pitido.
+    const yaAviso = A.nativo && a && a.finDescanso && Date.now() - a.finDescanso > 2500;
     if (a) { a.finDescanso = 0; S.guardar(); }
     if (!sonar) { A.cancelar(); descanso.hidden = true; return; }
-    if (!A.sonoATiempo()) A.ahora(); else if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    if (yaAviso) A.cancelar();
+    else if (!A.sonoATiempo()) A.ahora();
+    else { A.quitarAviso(); if (navigator.vibrate) navigator.vibrate([200, 100, 200]); }
     const r = $('#d-reloj'), ro = $('#d-rotulo'), an = $('#d-anillo');
     if (r) r.textContent = '0:00';
     if (ro) ro.textContent = '¡A darle!';
@@ -424,14 +432,15 @@
       '<section class="grupo"><h2>' + esc(p.nombre) + '</h2><p>Objetivo: ' + Gen.OBJ[p.encuesta.objetivo] + '. Plan de ' + esc(p.plan.titulo) + ', unos ' + p.plan.minutos + ' min por sesión.</p><div style="margin-top:12px"><button class="btn" data-a="aj-encuesta">Volver a hacer la encuesta</button></div></section>' +
       '<section class="grupo"><h2>Google Drive</h2>' + drive + '</section>' +
       '<section class="grupo"><h2>Pitido del descanso</h2>' + interruptor('sonido', 'Sonar al terminar el descanso') + interruptor('cuenta', 'Avisar 3, 2, 1 antes') + interruptor('enSilencio', 'Sonar aunque el iPhone esté en silencio', 'Puede pausar tu música mientras suena') + '<div style="margin-top:8px"><button class="btn" data-a="aj-probar">Probar el pitido</button></div></section>' +
-      '<section class="grupo"><h2>Pantalla</h2>' + interruptor('pantalla', 'Mantener la pantalla encendida al entrenar', 'Con el iPhone bloqueado el pitido no puede sonar') + '</section>' +
-      '<section class="grupo"><h2>Uso sin internet</h2><p id="aj-fotos">Revisando fotos guardadas…</p><div style="margin-top:12px"><button class="btn" data-a="aj-fotos">Descargar todas las fotos</button></div></section>' +
+      '<section class="grupo"><h2>Pantalla</h2>' + interruptor('pantalla', 'Mantener la pantalla encendida al entrenar', D.nativo ? 'Si bloqueas el iPhone, el aviso llega como notificación con sonido' : 'Con el iPhone bloqueado el pitido no puede sonar') + '</section>' +
+      '<section class="grupo"><h2>Uso sin internet</h2><p id="aj-fotos">Revisando fotos guardadas…</p>' + (D.nativo ? '' : '<div style="margin-top:12px"><button class="btn" data-a="aj-fotos">Descargar todas las fotos</button></div>') + '</section>' +
       '<section class="grupo"><h2>Tus datos</h2><div class="pila"><button class="btn" data-a="aj-exportar">Descargar una copia</button><button class="btn peligro" data-a="aj-borrar">Borrar todo de este teléfono</button></div></section></div>';
   }
   function urlsFotos() { const u = []; G.EXERCISES.forEach(e => S.fotos(e).forEach(x => u.push(x))); return u; }
   async function contarFotos() {
     const el = $('#aj-fotos'); if (!el) return;
     const total = urlsFotos().length;
+    if (D.nativo) { el.textContent = 'Las ' + total + ' fotos vienen dentro de la app. Todo funciona sin internet.'; return; }
     if (!('caches' in window) || !navigator.serviceWorker || !navigator.serviceWorker.controller) { el.textContent = 'El modo sin internet se activa cuando la app está publicada en su dirección https e instalada.'; return; }
     try { const c = await caches.open(CACHE_FOTOS), n = (await c.keys()).length; if ($('#aj-fotos')) $('#aj-fotos').textContent = n >= total ? 'Las ' + total + ' fotos están guardadas. Todo funciona sin internet.' : n + ' de ' + total + ' fotos guardadas. Descárgalas con wifi para no gastar datos.'; } catch (e) { el.textContent = ''; }
   }
@@ -465,7 +474,7 @@
   function automatico() {
     const s = st();
     if (!s.profile || !D.configurado() || !navigator.onLine) return;
-    if (D.token()) { if (s.sync.pendiente || !s.sync.ultima) sincronizar(false); }
+    if (D.listo()) { if (s.sync.pendiente || !s.sync.ultima) sincronizar(false); }
     else if (D.puedeRenovarSolo() && hoja.hidden && !ui.enc && !ui.plan) D.entrar(true, 'sync');
   }
   async function alVolverDeGoogle(v) {
@@ -546,7 +555,7 @@
       a.finDescanso += (+el.dataset.v) * 1000;
       const queda = (a.finDescanso - Date.now()) / 1000;
       if (queda <= 0) { finDescanso(true); return; }
-      a.totalDescanso = Math.max(a.totalDescanso, queda); S.guardar(); A.programar(queda); tick();
+      a.totalDescanso = Math.max(a.totalDescanso, queda); S.guardar(); A.programar(queda, textoSigue()); tick();
     },
 
     'rut-dia'(el) { ui.dia = +el.dataset.v; render(); scrollTo(0, 0); },
@@ -645,7 +654,7 @@
 
   // Subir a Drive unos segundos después de cada cambio (si hay permiso e internet).
   let syncT = null;
-  S.alCambiar(() => { clearTimeout(syncT); syncT = setTimeout(() => { if (D.token() && navigator.onLine && !st().active) sincronizar(false); }, 4000); });
+  S.alCambiar(() => { clearTimeout(syncT); syncT = setTimeout(() => { if (D.listo() && navigator.onLine && !st().active) sincronizar(false); }, 4000); });
 
   // ---------- Arranque ----------
   S.cargar();
@@ -653,7 +662,8 @@
   // El modo sin internet solo se activa en la dirección publicada (https), no al probar en la computadora,
   // para que al editar archivos en VS Code siempre veas la versión nueva.
   const esLocal = /^(localhost|127\.|\[::1\])/.test(location.hostname) && location.search.indexOf('sw=1') < 0;
-  if ('serviceWorker' in navigator && location.protocol !== 'file:' && !esLocal) {
+  D.alVolverNativo = alVolverDeGoogle;
+  if ('serviceWorker' in navigator && location.protocol !== 'file:' && !esLocal && !D.nativo) {
     navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(() => {
       setTimeout(() => { if (!localStorage.getItem('gym.fotos')) bajarFotos(false); }, 2500);
     }).catch(e => console.warn('Sin modo offline:', e));

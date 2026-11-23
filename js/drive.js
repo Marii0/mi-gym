@@ -10,8 +10,18 @@
   const API = 'https://www.googleapis.com/drive/v3';
   const SUBIDA = 'https://www.googleapis.com/upload/drive/v3';
   const CARPETA = 'application/vnd.google-apps.folder';
+  const URL_TOKEN = 'https://oauth2.googleapis.com/token';
+  const K_REFRESCO = 'gym.refresco', K_PKCE = 'gym.pkce';
 
-  function configurado() { return /\.apps\.googleusercontent\.com$/.test((G.CONFIG.GOOGLE_CLIENT_ID || '').trim()); }
+  // En la app nativa (Capacitor) el inicio de sesión es distinto: se abre el navegador del sistema,
+  // Google regresa a la app con un código y la app lo cambia por un permiso que se renueva solo.
+  const NATIVO = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const P = NATIVO ? window.Capacitor.Plugins : {};
+  function idNativo() { return (G.CONFIG.GOOGLE_IOS_CLIENT_ID || '').trim(); }
+  function esquema() { return 'com.googleusercontent.apps.' + idNativo().replace(/\.apps\.googleusercontent\.com$/, ''); }
+  function regresoNativo() { return esquema() + ':/oauth2redirect'; }
+
+  function configurado() { return /\.apps\.googleusercontent\.com$/.test(NATIVO ? idNativo() : (G.CONFIG.GOOGLE_CLIENT_ID || '').trim()); }
   function urlApp() { return location.origin + location.pathname.replace(/index\.html$/, ''); }
 
   function token() {
@@ -21,9 +31,68 @@
     } catch (e) { return null; }
   }
 
+  function guardarToken(valor, segundos) {
+    localStorage.setItem(K_TOKEN, JSON.stringify({ valor, vence: Date.now() + (parseInt(segundos, 10) || 3600) * 1000 }));
+  }
+  function b64url(bytes) {
+    return btoa(String.fromCharCode.apply(null, new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  async function entrarNativo(despues) {
+    const verificador = b64url(crypto.getRandomValues(new Uint8Array(32))), estado = b64url(crypto.getRandomValues(new Uint8Array(12)));
+    const reto = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verificador)));
+    localStorage.setItem(K_PKCE, JSON.stringify({ verificador, estado, despues: despues || 'sync' }));
+    const p = new URLSearchParams({
+      client_id: idNativo(), redirect_uri: regresoNativo(), response_type: 'code', scope: SCOPE,
+      code_challenge: reto, code_challenge_method: 'S256', state: estado, prompt: 'select_account'
+    });
+    await P.Browser.open({ url: 'https://accounts.google.com/o/oauth2/v2/auth?' + p.toString() });
+  }
+  // Cambia un código (o el permiso de renovación) por un permiso de acceso nuevo.
+  async function canjear(datos) {
+    let d;
+    try {
+      const r = await fetch(URL_TOKEN, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(datos).toString() });
+      d = await r.json();
+    } catch (e) {
+      const r = await P.CapacitorHttp.post({ url: URL_TOKEN, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, data: datos });
+      d = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    }
+    if (!d || !d.access_token) throw new Error((d && d.error) || 'token');
+    guardarToken(d.access_token, d.expires_in);
+    if (d.refresh_token) localStorage.setItem(K_REFRESCO, d.refresh_token);
+    return d;
+  }
+  function tieneRenovacion() { return NATIVO && !!localStorage.getItem(K_REFRESCO); }
+  async function renovar() {
+    const r = localStorage.getItem(K_REFRESCO);
+    if (!r) return false;
+    try { await canjear({ client_id: idNativo(), grant_type: 'refresh_token', refresh_token: r }); return true; }
+    catch (e) { if (/invalid_grant/.test(e.message)) localStorage.removeItem(K_REFRESCO); return false; }
+  }
+  // La app nativa recibe aquí el regreso de Google (com.googleusercontent.apps....:/oauth2redirect?code=...).
+  async function alAbrirUrl(url) {
+    if (!url || url.indexOf(esquema()) !== 0) return;
+    try { await P.Browser.close(); } catch (e) { /* ya estaba cerrado */ }
+    const q = new URLSearchParams(url.split('?')[1] || '');
+    let pk = null;
+    try { pk = JSON.parse(localStorage.getItem(K_PKCE) || 'null'); } catch (e) { /* sin datos */ }
+    localStorage.removeItem(K_PKCE);
+    let v;
+    if (!pk || q.get('state') !== pk.estado) v = { ok: false, error: 'estado' };
+    else if (q.get('code')) {
+      try {
+        await canjear({ client_id: idNativo(), code: q.get('code'), code_verifier: pk.verificador, grant_type: 'authorization_code', redirect_uri: regresoNativo() });
+        S.state.sync.conectado = true; S.guardar();
+        v = { ok: true, despues: pk.despues };
+      } catch (e) { v = { ok: false, error: e.message, despues: pk.despues }; }
+    } else v = { ok: false, error: q.get('error') || 'cancelado', despues: pk.despues };
+    if (G.Drive.alVolverNativo) G.Drive.alVolverNativo(v);
+  }
+
   // Manda a la pantalla de Google. silencioso = renueva el permiso sin preguntar nada.
   function entrar(silencioso, despues) {
     if (!configurado()) return false;
+    if (NATIVO) { entrarNativo(despues).catch(e => console.warn('No se pudo abrir Google', e)); return true; }
     const estado = Math.random().toString(36).slice(2) + Date.now().toString(36);
     localStorage.setItem(K_ESTADO, estado);
     localStorage.setItem(K_DESPUES, despues || 'sync');
@@ -48,7 +117,7 @@
     const despues = localStorage.getItem(K_DESPUES) || 'sync';
     if (!esperado || p.get('state') !== esperado) return { ok: false, error: 'estado' };
     if (p.get('access_token')) {
-      localStorage.setItem(K_TOKEN, JSON.stringify({ valor: p.get('access_token'), vence: Date.now() + (parseInt(p.get('expires_in'), 10) || 3600) * 1000 }));
+      guardarToken(p.get('access_token'), p.get('expires_in'));
       S.state.sync.conectado = true; S.guardar();
       return { ok: true, despues };
     }
@@ -56,12 +125,13 @@
   }
 
   function salir() {
-    localStorage.removeItem(K_TOKEN);
+    localStorage.removeItem(K_TOKEN); localStorage.removeItem(K_REFRESCO);
     Object.assign(S.state.sync, { conectado: false, carpeta: null, archivo: null, correo: null });
     S.guardar();
   }
 
   async function pedir(url, opciones) {
+    if (!token() && tieneRenovacion()) await renovar();
     const t = token();
     if (!t) throw new Error('sin-permiso');
     const o = Object.assign({}, opciones || {});
@@ -129,8 +199,9 @@
     if (ocupado || !S.state.profile) return { ok: false, motivo: 'ocupado' };
     if (!configurado()) return { ok: false, motivo: 'sin-configurar' };
     if (!navigator.onLine) return { ok: false, motivo: 'sin-internet' };
-    if (!token()) return { ok: false, motivo: 'sin-permiso' };
     ocupado = true;
+    if (!token() && tieneRenovacion()) await renovar();
+    if (!token()) { ocupado = false; return { ok: false, motivo: 'sin-permiso' }; }
     const m = S.state.sync;
     try {
       if (!m.correo) {
@@ -169,8 +240,12 @@
   // ¿Conviene renovar el permiso solo? (hay internet, ya estaba conectado, hay cambios y no se intentó hace poco)
   function puedeRenovarSolo() {
     const ult = parseInt(localStorage.getItem(K_INTENTO) || '0', 10);
-    return configurado() && navigator.onLine && S.state.sync.conectado && S.state.sync.pendiente && !token() && !S.state.active && Date.now() - ult > 10 * 60000;
+    return !NATIVO && configurado() && navigator.onLine && S.state.sync.conectado && S.state.sync.pendiente && !token() && !S.state.active && Date.now() - ult > 10 * 60000;
   }
 
-  G.Drive = { configurado, urlApp, token, entrar, alVolver, salir, sincronizar, perfiles, recuperar, puedeRenovarSolo };
+  // ¿Se puede sincronizar ahora mismo sin pedirle nada a la persona?
+  function listo() { return !!token() || tieneRenovacion(); }
+
+  G.Drive = { configurado, urlApp, token, entrar, alVolver, salir, sincronizar, perfiles, recuperar, puedeRenovarSolo, listo, nativo: NATIVO, alVolverNativo: null };
+  if (NATIVO && P.App) P.App.addListener('appUrlOpen', e => { alAbrirUrl(e && e.url); });
 })();
