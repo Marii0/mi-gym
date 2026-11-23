@@ -1,0 +1,10 @@
+{
+  "appId": "io.github.marii0.migym",
+  "appName": "Mi Gym",
+  "webDir": "www",
+  "backgroundColor": "#0F1B2D",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0F1B2D"
+  }
+}

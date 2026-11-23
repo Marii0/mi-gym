@@ -13,52 +13,49 @@ Guarda todo en el teléfono, funciona sin internet y, cuando hay conexión, sube
 - Todo se puede cambiar: ejercicios, series, repeticiones, descansos, nombres, tips, fotos y días.
 - Una carpeta por persona en Drive: `GymApp/<nombre>/datos.json`.
 
-## 1. Probarla en la computadora
+## Dos formas de usarla
 
-1. Abre esta carpeta en VS Code.
-2. Instala la extensión **Live Server**.
-3. Clic derecho en `index.html` y elige **Open with Live Server**.
+**App nativa de iPhone (archivo .ipa).** Es la principal. Avisa con sonido aunque el iPhone esté bloqueado.
+Se compila sola en GitHub cada vez que cambia el código y queda en
+<https://github.com/Marii0/mi-gym/releases/download/ios/MiGym.ipa>.
 
-En la computadora no se activa el modo sin internet, así los cambios que hagas se ven al recargar.
+**App web.** La misma app en <https://marii0.github.io/mi-gym/>; sirve como respaldo y para probar cambios rápido.
 
-## 2. Publicarla (gratis, con GitHub Pages)
+## Instalar la app nativa desde Windows (gratis)
 
-El iPhone necesita una dirección `https` para instalarla.
+Se hace una vez por iPhone y se repite cada 7 días, porque con un Apple ID gratuito la firma dura una semana.
 
-1. Crea un repositorio público en GitHub, por ejemplo `mi-gym`, y sube todo el contenido de esta carpeta.
-2. En el repositorio: **Settings > Pages > Deploy from a branch**, rama `main`, carpeta `/ (root)`.
-3. La app queda en `https://TU_USUARIO.github.io/mi-gym/`.
+1. En la PC instala **iTunes** e **iCloud** desde la página de Apple (no desde Microsoft Store) y **Sideloadly** desde <https://sideloadly.io>.
+2. Descarga `MiGym.ipa` del enlace de arriba.
+3. Conecta el iPhone con el cable, desbloquéalo y toca **Confiar**.
+4. Abre Sideloadly, arrastra `MiGym.ipa`, escribe tu Apple ID y presiona **Start**. Te pide la contraseña de tu Apple ID.
+5. En el iPhone: Ajustes > General > VPN y gestión de dispositivos > tu Apple ID > **Confiar**.
+6. En iOS 16 o más nuevo activa Ajustes > Privacidad y seguridad > **Modo de desarrollador** y reinicia.
+7. Abre Mi Gym.
 
-El código es público, pero tus datos no: viven en tu teléfono y en tu Drive.
+Para renovarla cada semana repite los pasos 3 y 4 con el mismo Apple ID. No borres la app: así se conservan tus datos.
+Aunque caduque, tu rutina y tu calendario siguen en el teléfono y en Google Drive.
 
-## 3. Conectar Google Drive (una sola vez)
+## Probar cambios en la computadora
 
-1. Entra a <https://console.cloud.google.com> y elige o crea un proyecto.
-2. Activa la **Google Drive API** (APIs y servicios > Biblioteca).
-3. Configura la pantalla de consentimiento de OAuth como **Externa** y agrega como usuarios de prueba tu correo y el de tu novia.
-4. Crea un **ID de cliente de OAuth** de tipo **Aplicación web**.
-   En **URIs de redireccionamiento autorizados** pon la dirección exacta de la app, con la diagonal final:
-   `https://TU_USUARIO.github.io/mi-gym/`
-   (para probar en la computadora agrega también `http://127.0.0.1:5500/`).
-5. Copia el ID de cliente (termina en `.apps.googleusercontent.com`) y pégalo en `js/config.js`.
-6. Sube el cambio y aumenta `VERSION` en `sw.js` (ver abajo).
+1. Abre esta carpeta en VS Code e instala la extensión **Live Server**.
+2. Clic derecho en `index.html` y elige **Open with Live Server**.
 
-La app pide solo el permiso `drive.file`: únicamente puede ver los archivos que ella misma crea.
+Al subir cambios a GitHub:
+- La app web se actualiza sola. Cambia `VERSION` en `sw.js` para que los teléfonos bajen la versión nueva.
+- La app nativa se vuelve a compilar sola (pestaña Actions) y hay que reinstalar el `.ipa` nuevo con Sideloadly.
+
+## Google Drive
+
+Ya está configurado en el proyecto "Mi Gym" de Google Cloud, con dos ID de cliente en `js/config.js`:
+uno para la app web y otro de tipo iOS para la app nativa. Solo pide el permiso `drive.file`:
+la app únicamente ve los archivos que ella misma crea.
+
+Mientras el proyecto esté en modo de prueba, solo pueden entrar los correos agregados como usuarios de prueba
+(Google Auth Platform > Audience > Test users) y hay que volver a iniciar sesión cada 7 días.
 
 Cada quien entra con su propia cuenta de Google y su carpeta queda en su propio Drive.
 Si prefieren que las dos carpetas estén en el mismo Drive, entren los dos con la misma cuenta.
-
-## 4. Instalarla en el iPhone
-
-1. Con wifi, abre la dirección de la app en **Safari**.
-2. Botón Compartir > **Agregar a inicio**.
-3. Ábrela desde el ícono. La primera vez descarga las fotos (unos 4 MB) para que después no gaste datos.
-   En Ajustes > Uso sin internet se ve cuántas fotos lleva.
-
-## Cuando cambies algo de la app
-
-Los teléfonos guardan una copia de la app para abrir sin internet. Para que bajen la versión nueva,
-cambia `VERSION` en `sw.js` (de `v1` a `v2`, etc.) cada vez que subas cambios.
 
 ## Dónde está cada cosa
 
@@ -73,12 +70,14 @@ cambia `VERSION` en `sw.js` (de `v1` a `v2`, etc.) cada vez que subas cambios.
 | `js/audio.js` | Pitido y pantalla encendida |
 | `css/styles.css` | Colores y diseño |
 | `img/ex/` | Fotos de los ejercicios |
+| `native/`, `package.json`, `capacitor.config.json` | Lo necesario para armar la app nativa con Capacitor |
+| `.github/workflows/ios.yml` | Compilación de la app nativa en la nube |
 
 ## Límites que conviene saber
 
-- El pitido suena con la app abierta. Por eso la app mantiene la pantalla encendida durante el entrenamiento.
-  Con el iPhone bloqueado, iOS pausa las apps web y el pitido no puede sonar; al volver a la app suena de inmediato si el descanso ya terminó.
-- Con el iPhone en modo silencio, el pitido no suena a menos que actives "Sonar aunque el iPhone esté en silencio" en Ajustes (esa opción puede pausar tu música mientras suena).
+- App nativa: con el iPhone bloqueado el aviso llega como notificación con sonido. Si el iPhone está en silencio, vibra en vez de sonar.
+- App web: el pitido solo suena con la app abierta; con el iPhone bloqueado no puede sonar.
+- La firma gratuita de la app nativa dura 7 días y permite hasta 3 apps instaladas así por iPhone.
 - La copia a Drive se hace con la app abierta. Si entrenaste sin internet, se sube la siguiente vez que la abras con conexión.
 
 ## Créditos
