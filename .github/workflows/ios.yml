@@ -1,0 +1,87 @@
+# Compila la app nativa de iPhone en una Mac de GitHub (gratis en repositorios públicos)
+# y publica el archivo MiGym.ipa en la sección "Releases" del repositorio.
+# El .ipa sale sin firma: se firma e instala desde la PC con Sideloadly y un Apple ID.
+name: App de iPhone
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ios.yml'
+      - 'native/**'
+      - 'js/**'
+      - 'css/**'
+      - 'index.html'
+      - 'package.json'
+      - 'capacitor.config.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar Capacitor
+        run: npm install --no-audit --no-fund
+
+      - name: Generar el proyecto de iOS
+        run: npm run ios
+
+      - name: Registrar el sonido del aviso en Xcode
+        continue-on-error: true
+        run: |
+          ruby -e '
+            require "xcodeproj"
+            p = Xcodeproj::Project.open("ios/App/App.xcodeproj")
+            t = p.targets.find { |x| x.name == "App" }
+            g = p.main_group["App"]
+            unless g.files.any? { |f| f.path == "pitido.wav" }
+              t.add_resources([g.new_file("pitido.wav")])
+              p.save
+            end
+            puts "pitido.wav agregado"
+          '
+
+      - name: Compilar sin firma
+        run: |
+          set -o pipefail
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
+            -sdk iphoneos -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build > build.log 2>&1 || { grep -n "error:" build.log | head -40; tail -40 build.log; exit 1; }
+          tail -3 build.log
+
+      - name: Empaquetar MiGym.ipa
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app Payload/
+          ls Payload/App.app | head -30
+          zip -qry MiGym.ipa Payload
+          ls -la MiGym.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MiGym-ipa
+          path: MiGym.ipa
+
+      - name: Publicar la descarga
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ios --yes --cleanup-tag || true
+          sleep 3
+          gh release create ios MiGym.ipa --target "$GITHUB_SHA" --title "Mi Gym para iPhone" \
+            --notes "Archivo MiGym.ipa sin firma. Se instala desde la PC con Sideloadly y tu Apple ID (ver LEEME.md)."
