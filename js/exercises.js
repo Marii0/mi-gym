@@ -451,4 +451,31 @@
   root.GYM.EX = byId;
   root.GYM.SLOTS = SLOTS;
   root.GYM.GRUPOS = GRUPOS;
+  // Dibujo de cada ejercicio: [archivo en img/dib, cuántos cuadros tiene]. Varios ejercicios parecidos comparten dibujo.
+  root.GYM.DIB = {
+    sentadilla_barra: ['d0122', 2], prensa: ['d0127', 2], sentadilla_goblet: ['d0152', 2], sentadilla_smith: ['d0124', 2],
+    hack: ['d0123', 2], sentadilla_mancuernas: ['d0130', 2], sentadilla_libre: ['d0136', 2], desplante_mancuernas: ['d0115', 2],
+    sentadilla_bulgara: ['d0132', 2], step_up: ['d0137', 2], desplante_atras: ['d0129', 2], desplante_caminando: ['d0121', 2],
+    extension_pierna: ['d0142', 2], curl_femoral_acostado: ['d0117', 2], curl_femoral_sentado: ['d0119', 2], pantorrilla_parado: ['d0282', 2],
+    pantorrilla_sentado: ['d0279', 2], pantorrilla_mancuerna: ['d0281', 2], pantorrilla_prensa: ['d0273', 2], peso_muerto_rumano: ['d0118', 2],
+    peso_muerto: ['d0099', 2], pm_rumano_mancuernas: ['d0107', 2], hiperextension: ['d0103', 2], hip_thrust: ['d0109', 2],
+    puente_gluteo: ['d0109', 2], puente_una_pierna: ['d0109', 2], patada_polea: ['d0112', 2], patada_gluteo: ['d0112', 2],
+    abductor: ['d0156', 2], press_banca: ['d0042', 2], press_mancuernas: ['d0055', 2], press_maquina: ['d0066', 2],
+    lagartijas: ['d0077', 2], lagartijas_inclinadas: ['d0077', 2], press_inclinado_mancuernas: ['d0061', 2], press_inclinado_barra: ['d0043', 2],
+    press_inclinado_maquina: ['d0085', 2], lagartijas_declinadas: ['d0075', 2], aperturas_mancuernas: ['d0056', 2], pec_deck: ['d0048', 2],
+    cruce_poleas: ['d0048', 2], press_hombro_mancuernas: ['d0031', 2], press_militar: ['d0004', 2], press_hombro_maquina: ['u719', 2],
+    press_arnold: ['d0038', 2], elevacion_lateral: ['d0018', 2], elevacion_lateral_polea: ['d0017', 2], face_pull: ['u327', 2],
+    pec_deck_inverso: ['d0035', 2], pajaros: ['d0032', 2], jalon_pecho: ['d0095', 2], dominadas: ['d0091', 2],
+    chin_up: ['u751', 2], jalon_cerrado: ['d0096', 2], dominada_asistida: ['d0090', 2], remo_polea: ['d0025', 2],
+    remo_barra: ['u809', 2], remo_mancuerna: ['d0024', 2], remo_maquina: ['d0029', 2], remo_t: ['d0026', 2],
+    remo_invertido: ['d0086', 2], remo_inclinado_mancuernas: ['d0225', 2], superman: ['d0105', 2], curl_barra: ['d0211', 2],
+    curl_mancuernas: ['d0224', 2], curl_martillo: ['d0227', 2], curl_predicador: ['d0239', 2], curl_polea: ['d0212', 2],
+    curl_inclinado: ['d0214', 2], curl_concentrado: ['d0220', 2], extension_cuerda: ['d0206', 2], extension_polea_barra: ['d0205', 2],
+    rompecraneos: ['d0183', 2], extension_tras_nuca: ['d0198', 2], fondos_banco: ['d0162', 2], fondos: ['d0172', 2],
+    patada_triceps: ['d0204', 2], lagartijas_cerradas: ['d0188', 2], plancha: ['u848', 1], crunch: ['d0291', 2],
+    elevacion_piernas_colgado: ['u753', 2], crunch_polea: ['u732', 2], giro_ruso: ['u740', 2], dead_bug: ['u581', 2],
+    crunch_inverso: ['d0287', 2], escaladores: ['u554', 2], plancha_lateral: ['d0113', 2], elevacion_piernas_banco: ['d0021', 2],
+    caminadora: ['caminadora', 2], trote: ['trote', 2], bici: ['bici', 2], eliptica: ['eliptica', 2],
+    remo_cardio: ['remadora', 2], escaladora: ['escaladora', 2], cuerda: ['u483', 1], caminata: ['caminata', 2]
+  };
 })();

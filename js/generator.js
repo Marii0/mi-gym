@@ -60,17 +60,19 @@
     brazos: ['biceps', 'triceps'], piernas: ['quadiso', 'hamcurl'], gluteos: ['glute', 'gluteiso'], abdomen: ['core']
   };
 
-  function reparto(objetivo, k) {
-    let f, c = 0;
-    if (objetivo === 'musculo') f = Math.min(k, 6);
-    else if (objetivo === 'fuerza') f = Math.min(k, 5);
-    else if (objetivo === 'grasa') { f = Math.min(k, 4); c = Math.min(k - f, 2); }
-    else { f = Math.min(k, 3); c = Math.min(k - f, 2); }
+  // Cuántos días de pesas y cuántos de cardio, según el objetivo y lo que la persona pidió de cardio:
+  // 'auto' (lo que convenga), 'final' (al final de cada sesión), 'dias' (días aparte) o 'no'.
+  function reparto(s, k) {
+    const o = s.objetivo, pref = s.cardio || 'auto';
+    const tope = o === 'musculo' ? 6 : o === 'fuerza' ? 5 : o === 'grasa' ? 4 : 3;
+    let f = Math.min(k, tope), c = 0;
+    if (pref === 'dias' && k >= 3) { c = k >= 5 ? 2 : 1; f = Math.min(k - c, tope); }
+    else if (pref === 'auto' && (o === 'grasa' || o === 'salud')) c = Math.min(k - f, 2);
     return { fuerza: f, cardio: c };
   }
 
-  function secuencia(objetivo, k) {
-    const r = reparto(objetivo, k);
+  function secuencia(s, k) {
+    const r = reparto(s, k);
     const seq = DIVISION[r.fuerza].slice();
     const total = r.fuerza + r.cardio;
     for (let j = 1; j <= r.cardio; j++) seq.splice(Math.floor(j * total / (r.cardio + 1)), 0, 'CARDIO');
@@ -102,6 +104,7 @@
     return p > 0 && e > 0 ? p / Math.pow(e / 100, 2) : null;
   }
 
+  const CARDIO_PREF = { trote: ['trote'], caminata: ['caminadora', 'caminata'], bici: ['bici'], eliptica: ['eliptica'] };
   function elegir(slot, s, usados, equipoForzado) {
     const permitido = EQUIPO[equipoForzado || s.equipo];
     const max = NIVEL_MAX[s.nivel];
@@ -116,6 +119,7 @@
       let p = i;
       if (e.nivel > max) p += 10 * (e.nivel - max);
       p += 8 * (usados.semana[id] || 0);
+      if (slot === 'cardio' && (CARDIO_PREF[s.cardioTipo] || []).indexOf(id) >= 0) p -= 20 + 8 * (usados.semana[id] || 0); // el cardio preferido se repite toda la semana
       if (s.objetivo === 'fuerza' && e.equipo === 'barra') p -= 2;
       if (novato && e.equipo === 'maquina') p -= 1.5;
       if (novato && e.equipo === 'barra') p += 1.5;
@@ -148,11 +152,11 @@
 
   // Minutos aproximados que toma un ejercicio (trabajo + descansos + acomodarse).
   function minutosItem(it) {
-    const e = G.EX[it.ex];
-    const m = /(\d+)\s*min/.exec(it.reps || '');
-    if (m) return parseInt(m[1], 10) * (it.sets || 1);
+    const e = G.EX[it.ex], se = it.series || [];
+    const m = /(\d+)\s*min/.exec((se[0] && se[0].reps) || '');
+    if (m) return parseInt(m[1], 10) * se.length;
     const trabajo = e && e.tipo === 'c' ? 40 : 35;
-    return (it.sets * (trabajo + (it.rest || 0)) + 60) / 60;
+    return (se.length * (trabajo + (it.rest || 0)) + 60) / 60;
   }
   function minutosDia(items) {
     if (!items || !items.length) return 0;
@@ -161,9 +165,30 @@
 
   let uidN = 0;
   function uid() { return 'i' + Date.now().toString(36) + (uidN++).toString(36); }
-  function item(e, d) { return { uid: uid(), ex: e.id, sets: d.sets, reps: d.reps, rest: d.rest, nota: '' }; }
+  // Cada ejercicio de la rutina guarda sus series una por una: repeticiones, peso y tipo
+  // ('n' normal, 'c' calentamiento). Un rango como "8-12" se convierte en el número de en medio
+  // y el rango queda anotado en las notas.
+  const RANGO = /^(\d+)-(\d+)$/;
+  function numReps(r) { const m = RANGO.exec(r); return m ? String(Math.round((+m[1] + +m[2]) / 2)) : String(r); }
+  function item(e, d) {
+    return { uid: uid(), ex: e.id, rest: d.rest, nota: RANGO.test(d.reps) ? 'Rango: ' + d.reps + ' repeticiones' : '',
+      series: Array.from({ length: d.sets }, () => ({ reps: numReps(d.reps), peso: '', tipo: 'n' })) };
+  }
+  function nuevoItem(e, s, pos) { return item(e, G.EX[e.id] ? dosis(s, e, pos) : { sets: 3, reps: '10', rest: 60 }); }
+  // Convierte rutinas guardadas con el formato anterior (sets/reps) al formato por series.
+  function normalizar(rutina) {
+    if (!rutina || !rutina.dias) return rutina;
+    Object.keys(rutina.dias).forEach(d => (rutina.dias[d].items || []).forEach(it => {
+      if (it.series) return;
+      const r = String(it.reps || '');
+      it.series = Array.from({ length: it.sets || 1 }, () => ({ reps: numReps(r), peso: '', tipo: 'n' }));
+      if (RANGO.test(r) && !it.nota) it.nota = 'Rango: ' + r + ' repeticiones';
+      delete it.sets; delete it.reps;
+    }));
+    return rutina;
+  }
 
-  function armarSesion(clave, s, minutos, semana) {
+  function armarSesion(clave, s, minutos, semana, hayDiasCardio) {
     const t = T[clave];
     const usados = { semana, sesion: {} };
     const items = [];
@@ -172,12 +197,16 @@
 
     // Cardio al final (o como bloque principal en el día de cardio).
     let minCardio = 0;
+    let pref = s.cardio || 'auto';
+    if (pref === 'dias' && !hayDiasCardio) pref = 'final';
     if (clave === 'CARDIO') minCardio = Math.max(15, Math.min(35, minutos - 18));
-    else if (!casa && s.objetivo === 'grasa') minCardio = minutos >= 60 ? 15 : 10;
-    else if (!casa && s.objetivo === 'salud' && minutos >= 45) minCardio = 10;
+    else if (casa || pref === 'no' || pref === 'dias') minCardio = 0;
+    else if (pref === 'final') minCardio = minutos >= 60 ? 15 : 10;
+    else if (s.objetivo === 'grasa') minCardio = minutos >= 60 ? 15 : 10;
+    else if (s.objetivo === 'salud' && minutos >= 45) minCardio = 10;
     if (minCardio) {
       const e = elegir('cardio', s, usados);
-      if (e) { cardio = { uid: uid(), ex: e.id, sets: 1, reps: minCardio + ' min', rest: 0, nota: '' }; usados.sesion[e.id] = 1; presupuesto -= minCardio; }
+      if (e) { cardio = { uid: uid(), ex: e.id, rest: 0, nota: '', series: [{ reps: minCardio + ' min', peso: '', tipo: 'n' }] }; usados.sesion[e.id] = 1; presupuesto -= minCardio; }
     }
 
     const prioridad = [];
@@ -210,7 +239,10 @@
 
   function recorta(items, campo, tope) {
     let cambio = false;
-    items.forEach(it => { if (it[campo] > tope) { it[campo] = tope; cambio = true; } });
+    items.forEach(it => {
+      if (campo === 'sets') { if (it.series.length > tope) { it.series.length = tope; cambio = true; } }
+      else if (it[campo] > tope) { it[campo] = tope; cambio = true; }
+    });
     return cambio;
   }
 
@@ -229,9 +261,9 @@
     const out = [];
 
     function crear(id, k, casa, etiqueta, notas) {
-      const seq = secuencia(s.objetivo, k);
+      const seq = secuencia(s, k);
       const dias = elegirDias(disp, seq.length);
-      const r = reparto(s.objetivo, k);
+      const r = reparto(s, k);
       let diaCasa = null;
       if (casa) {
         const libres = [0, 1, 2, 3, 4, 5, 6].filter(x => dias.indexOf(x) < 0);
@@ -250,6 +282,7 @@
       const detalle = [];
       detalle.push(lista(dias.map(d => DIAS[d])) + (diaCasa != null ? ', más ' + DIAS[diaCasa] + ' en casa' : ''));
       detalle.push('Rutina de ' + DIVISION_NOMBRE[r.fuerza] + (r.cardio ? ' con ' + r.cardio + (r.cardio > 1 ? ' días' : ' día') + ' de cardio' : '') + ', unos ' + minutos + ' min por sesión');
+      if (s.cardio === 'final' || (s.cardio === 'dias' && !r.cardio)) detalle.push('Con 10 a 15 min de cardio al final de cada sesión');
       (notas || []).forEach(n => detalle.push(n));
       out.push({ id, etiqueta, pct, cerca, k, seq, dias, diaCasa, minutos, detalle, titulo: seq.length + (seq.length === 1 ? ' día' : ' días') + (diaCasa != null ? ' y una sesión en casa' : '') });
     }
@@ -278,10 +311,11 @@
     const dias = {};
     const semana = {};
     for (let d = 1; d <= 7; d++) dias[d] = { nombre: 'Descanso', items: [] };
-    op.seq.forEach((clave, i) => { dias[op.dias[i] + 1] = armarSesion(clave, s, op.minutos, semana); });
-    if (op.diaCasa != null) dias[op.diaCasa + 1] = armarSesion('CASA', s, 25, semana);
+    const hayDiasCardio = op.seq.indexOf('CARDIO') >= 0;
+    op.seq.forEach((clave, i) => { dias[op.dias[i] + 1] = armarSesion(clave, s, op.minutos, semana, hayDiasCardio); });
+    if (op.diaCasa != null) dias[op.diaCasa + 1] = armarSesion('CASA', s, 25, semana, hayDiasCardio);
     return { updatedAt: Date.now(), dias };
   }
 
-  G.Gen = { DIAS, OBJ, opciones, construir, dosis, minutosDia, minutosItem, uid, imc, elegirDias, IDEAL_DIAS, idealMin };
+  G.Gen = { DIAS, OBJ, opciones, construir, dosis, minutosDia, minutosItem, uid, imc, elegirDias, IDEAL_DIAS, idealMin, nuevoItem, normalizar };
 })();

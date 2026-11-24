@@ -1,19 +1,24 @@
-/* Pantallas y acciones de la app. Cada pantalla es una función que devuelve HTML;
-   los botones llevan data-a="accion" y se atienden en el objeto "acciones" al final. */
+/* Pantallas y acciones de la app.
+   Cada pantalla es una función que devuelve { cab, html, pie, tabs }: el encabezado y el pie quedan
+   fijos y solo el contenido de en medio se desliza. Los botones llevan data-a="accion" y se atienden
+   en el objeto "acciones" al final. */
 (function () {
   const G = window.GYM, S = G.Store, Gen = G.Gen, D = G.Drive, A = G.Audio;
   const $ = s => document.querySelector(s);
-  const vista = $('#vista'), tabs = $('#tabs'), hoja = $('#hoja'), descanso = $('#descanso'), toastEl = $('#toast');
+  const app = $('#app'), cab = $('#cab'), vista = $('#vista'), pie = $('#pie'), tabs = $('#tabs'), hoja = $('#hoja'), toastEl = $('#toast');
   const DIAS = Gen.DIAS, LETRAS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
   const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const CACHE_FOTOS = 'gym-img-v1';
   const st = () => S.state;
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const ui = { tab: 'hoy', dia: null, verDia: null, mes: null, enc: null, plan: null, entrenando: false, item: null, pick: null, alConfirmar: null, grupo: '' };
+  // ui.ej = { dia, i, editar } cuando se está viendo un ejercicio.
+  const ui = { tab: 'hoy', dia: null, verDia: null, mes: null, enc: null, plan: null, ej: null, pick: null, alConfirmar: null, grupo: '' };
 
   // ---------- Utilidades ----------
-  function reloj(seg) { seg = Math.max(0, Math.round(seg)); return Math.floor(seg / 60) + ':' + String(seg % 60).padStart(2, '0'); }
-  function descansoTxt(seg) { return !seg ? 'sin descanso' : seg < 60 ? seg + ' s' : reloj(seg) + ' min'; }
+  function reloj(seg) { seg = Math.max(0, Math.round(seg)); return String(Math.floor(seg / 60)).padStart(2, '0') + ':' + String(seg % 60).padStart(2, '0'); }
+  function unidad() { return st().settings.unidad === 'kg' ? 'kg' : 'lb'; }
+  // Cada ejercicio puede ir en libras o kilos; si no se ha elegido, usa la unidad de Ajustes.
+  function uni(it) { return it && (it.u === 'kg' || it.u === 'lb') ? it.u : unidad(); }
   function hace(ts) {
     const m = Math.round((Date.now() - ts) / 60000);
     if (m < 1) return 'hace un momento';
@@ -31,13 +36,25 @@
     const f = S.fotos(e);
     return '<div class="foto">' + (f.length ? f.map(u => '<img alt="" src="' + esc(u) + '">').join('') : '<span class="sin">Sin foto</span>') + '</div>';
   }
+  // "4 series, 10 repeticiones, 50 lb" (como resumen de un ejercicio de la rutina)
+  function resumenItem(it) {
+    const se = it.series || [], n = se.filter(x => x.tipo !== 'c').length || se.length;
+    if (!se.length) return 'Sin series';
+    if (porTiempo(se[0].reps)) return (se.length > 1 ? se.length + ' × ' : '') + se[0].reps;
+    const reps = se.map(x => x.reps).filter(Boolean), pesos = se.map(x => x.peso).filter(Boolean);
+    const igual = a => a.every(x => x === a[0]);
+    let t = n + (n === 1 ? ' serie' : ' series');
+    if (reps.length) t += ', ' + (igual(reps) ? reps[0] : Math.min.apply(null, reps.map(Number)) + ' a ' + Math.max.apply(null, reps.map(Number))) + ' repeticiones';
+    if (pesos.length) t += ', ' + (igual(pesos) ? pesos[0] : 'hasta ' + Math.max.apply(null, pesos.map(Number))) + ' ' + uni(it);
+    return t;
+  }
   let toastT = null;
   function toast(msg) {
     toastEl.textContent = msg; toastEl.hidden = false;
     clearTimeout(toastT); toastT = setTimeout(() => { toastEl.hidden = true; }, 3200);
   }
   function abrir(html) { hoja.innerHTML = '<div class="hoja" role="dialog" aria-modal="true">' + html + '</div>'; hoja.hidden = false; }
-  function cerrar() { hoja.hidden = true; hoja.innerHTML = ''; ui.item = null; ui.pick = null; ui.alConfirmar = null; }
+  function cerrar() { hoja.hidden = true; hoja.innerHTML = ''; ui.pick = null; ui.alConfirmar = null; }
   function cabHoja(titulo, sub) {
     return '<div class="hoja-cab"><div><h2>' + esc(titulo) + '</h2>' + (sub ? '<p class="tenue chico">' + esc(sub) + '</p>' : '') + '</div><button class="cerrar" data-a="cerrar" aria-label="Cerrar">✕</button></div>';
   }
@@ -47,19 +64,26 @@
   }
 
   // ---------- Dibujo general ----------
-  function render() {
+  function pantalla() {
     const s = st();
-    let html, conTabs = false;
-    if (ui.enc) html = vEncuesta();
-    else if (ui.plan) html = vPlan();
-    else if (!s.profile || !s.routine) html = vBienvenida();
-    else if (s.active && ui.entrenando) html = vEntrenamiento();
-    else { conTabs = true; html = ({ hoy: vHoy, rutina: ui.dia ? vDia : vRutina, cal: vCalendario, ajustes: vAjustes })[ui.tab](); }
-    vista.innerHTML = html;
-    vista.classList.toggle('sin-tabs', !conTabs);
-    tabs.hidden = !conTabs;
-    if (conTabs) dibujarTabs();
-    if (conTabs && ui.tab === 'ajustes') contarFotos();
+    if (ui.enc) return vEncuesta();
+    if (ui.plan) return vPlan();
+    if (!s.profile || !s.routine) return vBienvenida();
+    if (ui.ej) return vEjercicio();
+    return ({ hoy: vHoy, rutina: ui.dia ? vDia : vRutina, cal: vCalendario, ajustes: vAjustes })[ui.tab]();
+  }
+  function render(conservar) {
+    const y = vista.scrollTop, p = pantalla();
+    cab.innerHTML = p.cab || ''; cab.hidden = !p.cab;
+    vista.innerHTML = p.html;
+    pie.innerHTML = p.pie || ''; pie.hidden = !p.pie;
+    tabs.hidden = !p.tabs;
+    app.classList.toggle('con-tabs', !!p.tabs); app.classList.toggle('con-pie', !!p.pie);
+    vista.classList.toggle('sin-cab', !p.cab);
+    if (p.tabs) dibujarTabs();
+    vista.scrollTop = conservar ? y : 0;
+    if (p.tabs && ui.tab === 'ajustes') contarFotos();
+    if (ui.ej) { prepararRueda(); pintarTimer(); }
   }
   const ICONOS = {
     hoy: '<path d="M3 9v6M6.5 6.5v11M17.5 6.5v11M21 9v6M6.5 12h11"/>',
@@ -74,11 +98,18 @@
 
   // ---------- Bienvenida ----------
   function vBienvenida() {
-    return '<section class="bienvenida"><div class="disco" aria-hidden="true"></div>' +
-      '<h1>Tu rutina, hecha a tu medida</h1>' +
-      '<p>Contesta 9 preguntas y armo tu semana de gym: qué días ir, qué ejercicios hacer, cuántas repeticiones y cuánto descansar.</p>' +
-      '<button class="btn primario" data-a="encuesta">Empezar la encuesta</button>' +
-      '<button class="btn" data-a="recuperar">Ya tengo datos en Google Drive</button></section>';
+    return {
+      html: '<section class="bienvenida"><div class="disco" aria-hidden="true"></div><h1>Tu rutina, hecha a tu medida</h1>' +
+        '<p>Contesta unas preguntas y armo tu semana de gym, o sáltalas y arma tu rutina a tu gusto. Todo se puede cambiar después.</p></section>',
+      pie: '<div class="pila"><button class="btn primario" data-a="encuesta">Empezar la encuesta</button>' +
+        '<button class="btn" data-a="manual">Armar mi rutina yo mismo</button>' +
+        '<button class="liga centro" data-a="recuperar">Ya tengo datos en Google Drive</button></div>'
+    };
+  }
+  function rutinaVacia() {
+    const dias = {};
+    for (let d = 1; d <= 7; d++) dias[d] = { nombre: 'Descanso', items: [] };
+    return { updatedAt: Date.now(), dias };
   }
 
   // ---------- Encuesta ----------
@@ -89,10 +120,13 @@
     { k: 'dias', t: '¿Qué días puedes entrenar?', sub: 'Marca todos los que tengas libres. Yo elijo los mejores para tu objetivo.', tipo: 'dias' },
     { k: 'minutos', t: '¿Cuánto tiempo tienes por sesión?', sub: 'Contando el calentamiento.', tipo: 'uno', ops: [[30, '30 minutos'], [45, '45 minutos'], [60, '1 hora'], [75, '1 hora y cuarto'], [90, 'Hora y media o más']] },
     { k: 'equipo', t: '¿Dónde vas a entrenar?', tipo: 'uno', ops: [['completo', 'Gimnasio completo', 'Barras, mancuernas, máquinas y poleas'], ['basico', 'Gimnasio básico', 'Mancuernas y algunas máquinas'], ['casa', 'En casa con mancuernas', ''], ['nada', 'Sin equipo', 'Solo con el peso del cuerpo']] },
+    { k: 'cardio', t: '¿Quieres incluir cardio?', sub: 'Puedes combinarlo con cualquier objetivo.', tipo: 'uno', ops: [['auto', 'Lo que convenga a mi objetivo', ''], ['final', 'Sí, al final de cada sesión', '10 a 15 minutos después de las pesas'], ['dias', 'Sí, en días aparte', 'Uno o dos días solo de cardio'], ['no', 'No, solo pesas', '']] },
+    { k: 'cardioTipo', t: '¿Qué cardio prefieres?', tipo: 'uno', si: r => r.cardio !== 'no', ops: [['cualquiera', 'Me da igual', ''], ['trote', 'Trotar', ''], ['caminata', 'Caminar', ''], ['bici', 'Bicicleta', ''], ['eliptica', 'Elíptica', '']] },
     { k: 'molestias', t: '¿Tienes alguna molestia que deba cuidar?', sub: 'Dejo fuera los ejercicios que más cargan esa zona. Si no tienes ninguna, sigue adelante.', tipo: 'varios', ops: [['rodillas', 'Rodillas'], ['hombros', 'Hombros'], ['espalda', 'Espalda baja']] },
     { k: 'zonas', t: '¿Qué zonas quieres trabajar más?', sub: 'Opcional. Les doy un poco más de trabajo.', tipo: 'varios', ops: [['pecho', 'Pecho'], ['espalda', 'Espalda'], ['hombros', 'Hombros'], ['brazos', 'Brazos'], ['piernas', 'Piernas'], ['gluteos', 'Glúteos'], ['abdomen', 'Abdomen']] },
     { k: 'cuerpo', t: 'Unos datos más', sub: 'Opcionales. Sirven para ajustar el cardio y los descansos.', tipo: 'cuerpo' }
   ];
+  function aplica(i) { const p = PREG[i]; return !p.si || p.si(ui.enc.r); }
   function vEncuesta() {
     const i = ui.enc.i, p = PREG[i], r = ui.enc.r;
     let cuerpo = '', siguiente = true;
@@ -110,25 +144,113 @@
         '<label class="campo"><span>Peso (kg)</span><input id="enc-peso" inputmode="decimal" value="' + esc(r.peso || '') + '"></label>' +
         '<label class="campo"><span>Estatura (cm)</span><input id="enc-estatura" inputmode="numeric" value="' + esc(r.estatura || '') + '"></label></div>';
     }
-    return '<div class="enc-cab"><button class="liga" data-a="enc-atras">Atrás</button><div class="avance"><i style="width:' + Math.round(100 * (i + 1) / PREG.length) + '%"></i></div><span class="chico tenue">' + (i + 1) + ' de ' + PREG.length + '</span></div>' +
-      '<section class="enc"><h1>' + p.t + '</h1>' + (p.sub ? '<p class="sub">' + p.sub + '</p>' : '<div style="height:14px"></div>') + cuerpo +
-      (siguiente ? '<div class="enc-pie"><button class="btn primario" data-a="enc-sig">' + (i === PREG.length - 1 ? 'Ver mi plan' : 'Siguiente') + '</button></div>' : '') + '</section>';
+    const visibles = PREG.map((x, n) => n).filter(aplica), pos = visibles.indexOf(i) + 1;
+    return {
+      cab: '<div class="enc-cab"><button class="liga" data-a="enc-atras">Atrás</button><div class="avance"><i style="width:' + Math.round(100 * pos / visibles.length) + '%"></i></div><span class="chico tenue">' + pos + ' de ' + visibles.length + '</span></div>',
+      html: '<section class="enc"><h1>' + p.t + '</h1>' + (p.sub ? '<p class="sub">' + p.sub + '</p>' : '<div style="height:14px"></div>') + cuerpo + '</section>',
+      pie: siguiente ? '<button class="btn primario" data-a="enc-sig">' + (i === PREG.length - 1 ? 'Ver mi plan' : 'Siguiente') + '</button>' : ''
+    };
   }
   function encAvanza() {
-    if (ui.enc.i < PREG.length - 1) { ui.enc.i++; render(); scrollTo(0, 0); return; }
+    let i = ui.enc.i + 1;
+    while (i < PREG.length && !aplica(i)) i++;
+    if (i < PREG.length) { ui.enc.i = i; render(); return; }
     const r = ui.enc.r;
-    ui.plan = { r, ops: Gen.opciones(r), sel: 0 }; ui.enc = null; render(); scrollTo(0, 0);
+    ui.plan = { r, ops: Gen.opciones(r), sel: 0 }; ui.enc = null; render();
   }
 
   // ---------- Opciones de plan ----------
   function vPlan() {
     const p = ui.plan;
-    return '<div class="enc-cab"><button class="liga" data-a="plan-atras">Cambiar respuestas</button></div>' +
-      '<section class="enc"><h1>Tu plan, ' + esc(p.r.nombre) + '</h1><p class="sub">Para ' + Gen.OBJ[p.r.objetivo] + '. Elige la opción que mejor te acomode; después puedes cambiar lo que quieras.</p>' +
-      p.ops.map((o, i) => '<button class="plan" data-a="plan-sel" data-v="' + i + '" aria-pressed="' + (i === p.sel) + '"><span class="etq">' + o.etiqueta + '</span><h2>' + o.titulo + '</h2><ul>' +
-        o.detalle.map(d => '<li>' + esc(d) + '</li>').join('') + '</ul><div class="medidor"><span>Frente al plan ideal</span><div class="avance"><i style="width:' + o.pct + '%"></i></div><b>' + o.cerca + '</b></div></button>').join('') +
-      '<p class="aviso" style="margin-top:16px">Si tienes una lesión o dolor, consulta a un médico o fisioterapeuta antes de empezar.</p>' +
-      '<div class="enc-pie"><button class="btn primario" data-a="plan-crear">Crear mi rutina</button></div></section>';
+    return {
+      cab: '<div class="enc-cab"><button class="liga" data-a="plan-atras">Cambiar respuestas</button></div>',
+      html: '<section class="enc"><h1>Tu plan, ' + esc(p.r.nombre) + '</h1><p class="sub">Para ' + Gen.OBJ[p.r.objetivo] + '. Elige la opción que mejor te acomode; después puedes cambiar lo que quieras.</p>' +
+        p.ops.map((o, i) => '<button class="plan" data-a="plan-sel" data-v="' + i + '" aria-pressed="' + (i === p.sel) + '"><span class="etq">' + o.etiqueta + '</span><h2>' + o.titulo + '</h2><ul>' +
+          o.detalle.map(d => '<li>' + esc(d) + '</li>').join('') + '</ul><div class="medidor"><span>Frente al plan ideal</span><div class="avance"><i style="width:' + o.pct + '%"></i></div><b>' + o.cerca + '</b></div></button>').join('') +
+        '<p class="aviso" style="margin-top:16px">Si tienes una lesión o dolor, consulta a un médico o fisioterapeuta antes de empezar.</p></section>',
+      pie: '<button class="btn primario" data-a="plan-crear">Crear mi rutina</button>'
+    };
+  }
+
+  // ---------- Sesión de entrenamiento ----------
+  // No hay un orden obligatorio: cualquier serie de cualquier ejercicio se puede marcar cuando sea.
+  function sesion(crear, dia) {
+    const s = st();
+    if (!s.active && crear) {
+      const d = s.routine.dias[dia];
+      s.active = { fecha: S.hoy(), dia, nombre: d.items.length ? d.nombre : 'Entrenamiento', inicio: Date.now(), hechos: {} };
+      A.preparar(); A.permiso(); A.pantalla(true); S.guardar();
+    }
+    return s.active;
+  }
+  function hecho(uid, i) { const a = st().active; return !!(a && a.hechos[uid] && a.hechos[uid][i]); }
+  function avance() {
+    const a = st().active; let n = 0;
+    if (a) Object.keys(a.hechos).forEach(u => a.hechos[u].forEach(x => { if (x) n++; }));
+    return n;
+  }
+  function terminar() {
+    const s = st(), a = s.active;
+    if (!a) return;
+    const items = [];
+    Object.keys(s.routine.dias).forEach(d => s.routine.dias[d].items.forEach(it => {
+      const h = a.hechos[it.uid] || [], sets = it.series.filter((x, i) => h[i]).map(x => ({ kg: x.peso || '', reps: x.reps || '', tipo: x.tipo }));
+      if (sets.length) items.push({ ex: it.ex, nombre: S.ejercicio(it.ex).nombre, u: uni(it), sets });
+    }));
+    pararTimer(true); A.pantalla(false);
+    s.active = null;
+    if (!items.length) { S.guardar(); render(); toast('No marcaste ninguna serie'); return; }
+    const min = Math.max(1, Math.round((Date.now() - a.inicio) / 60000)), prev = registro(a.fecha);
+    s.logs[a.fecha] = { fecha: a.fecha, nombre: a.nombre, u: unidad(), min: (prev ? prev.min || 0 : 0) + min, items: (prev ? prev.items || [] : []).concat(items), updatedAt: Date.now() };
+    S.tocar('logs'); ui.ej = null; ui.tab = 'hoy'; ui.verDia = null; render();
+    const n = items.reduce((t, it) => t + it.sets.length, 0);
+    abrir(cabHoja('Entrenamiento guardado') + '<div class="resumen"><div><b>' + n + '</b><span>series</span></div><div><b>' + min + '</b><span>minutos</span></div><div><b>' + items.length + '</b><span>ejercicios</span></div></div><p class="tenue">Ya quedó marcado en tu calendario.</p><div style="margin-top:18px"><button class="btn primario" data-a="cerrar">Listo</button></div>');
+    sincronizar(false);
+  }
+
+  // ---------- Descanso (va en la misma pantalla del ejercicio) ----------
+  let tickT = null;
+  function corriendo() { return st().timer.fin > 0; }
+  function iniciarTimer(seg, texto) {
+    const t = st().timer;
+    t.total = seg; t.fin = Date.now() + seg * 1000; S.guardar();
+    A.programar(seg, texto);
+    if (!tickT) tickT = setInterval(tick, 200);
+    pintarTimer();
+  }
+  function pararTimer(silencio) {
+    const t = st().timer;
+    clearInterval(tickT); tickT = null;
+    t.fin = 0; S.guardar();
+    if (silencio) A.cancelar();
+    pintarTimer();
+  }
+  function tick() {
+    const t = st().timer;
+    if (!t.fin) { clearInterval(tickT); tickT = null; return; }
+    const ms = t.fin - Date.now();
+    if (ms > 0) { pintarTimer(); return; }
+    // En la app nativa, si acabó hace rato, la notificación ya sonó: no repetir el pitido.
+    const yaAviso = A.nativo && -ms > 2500;
+    clearInterval(tickT); tickT = null; t.fin = 0; S.guardar();
+    if (yaAviso) A.cancelar();
+    else if (!A.sonoATiempo()) A.ahora();
+    else { A.quitarAviso(); if (navigator.vibrate) navigator.vibrate([200, 100, 200]); }
+    pintarTimer();
+    const fila = $('#t-fila');
+    if (fila) { fila.classList.add('listo'); setTimeout(() => { const f = $('#t-fila'); if (f) f.classList.remove('listo'); }, 1800); }
+    else toast('Descanso terminado');
+  }
+  // Actualiza solo el reloj y su botón, sin redibujar la pantalla (para no cerrar el teclado).
+  function pintarTimer() {
+    const r = $('#t-reloj'), b = $('#t-btn'), it = itemActual();
+    if (!r || !it) return;
+    const t = st().timer, on = t.fin > 0;
+    r.textContent = reloj(on ? Math.ceil((t.fin - Date.now()) / 1000) : it.rest);
+    r.classList.toggle('on', on);
+    if (!b) return;
+    b.textContent = on ? 'Parar' : 'Iniciar';
+    b.classList.toggle('parar', on);
   }
 
   // ---------- Hoy ----------
@@ -140,183 +262,131 @@
     if (m.pendiente) return '<span class="punto pend"></span>Guardado en el teléfono. Se sube a Drive cuando haya internet';
     return '<span class="punto ok"></span>Copia en Drive al día' + (m.ultima ? ', ' + hace(m.ultima) : '');
   }
-  function filaItem(it, accion) {
-    const e = S.ejercicio(it.ex);
-    return '<button class="fila" data-a="' + accion + '" data-id="' + esc(it.ex) + '" data-u="' + esc(it.uid || '') + '">' + miniFoto(e) + '<span class="cuerpo"><b>' + esc(e.nombre) + '</b><span>' + (porTiempo(it.reps) && it.sets === 1 ? esc(it.reps) : it.sets + ' × ' + esc(it.reps)) + (it.rest ? ', descansa ' + descansoTxt(it.rest) : '') + '</span></span></button>';
+  function filaItem(it, accion, i) {
+    const e = S.ejercicio(it.ex), h = (st().active && st().active.hechos[it.uid]) || [], n = h.filter(Boolean).length;
+    return '<button class="fila-in" data-a="' + accion + '" data-v="' + i + '">' + miniFoto(e) + '<span class="cuerpo"><b>' + esc(e.nombre) + '</b><span>' + esc(resumenItem(it)) + '</span></span>' +
+      (n ? '<span class="hechas' + (n >= it.series.length ? ' todas' : '') + '">' + n + '/' + it.series.length + '</span>' : '') + '</button>';
   }
   function vHoy() {
-    const s = st(), hoyN = S.diaSemana(), ver = ui.verDia || hoyN, dia = s.routine.dias[ver];
+    const s = st(), hoyN = S.diaSemana(), ver = ui.verDia || hoyN, dia = s.routine.dias[ver], a = s.active;
     const fecha = new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
-    const titulo = dia.items.length ? dia.nombre : 'Descanso';
-    let h = '<header class="cab"><p class="fecha">' + (ver === hoyN ? esc(fecha.charAt(0).toUpperCase() + fecha.slice(1)) : DIAS[ver - 1]) + '</p><h1>' + esc(titulo) + '</h1></header>';
-    h += '<div class="semana">' + LETRAS.map((l, i) => {
-      const d = i + 1, hecho = registro(fechaDeSemana(d)), plan = s.routine.dias[d].items.length > 0;
-      return '<button data-a="hoy-dia" data-v="' + d + '" class="' + (d === ver ? 'sel ' : '') + (d === hoyN ? 'hoy' : '') + '" aria-label="' + DIAS[i] + '"><span>' + l + '</span><span class="marca ' + (hecho ? 'hecho' : plan ? 'toca' : '') + '"></span></button>';
+    let h = '<div class="semana">' + LETRAS.map((l, i) => {
+      const d = i + 1, listo = registro(fechaDeSemana(d)), plan = s.routine.dias[d].items.length > 0;
+      return '<button data-a="hoy-dia" data-v="' + d + '" class="' + (d === ver ? 'sel ' : '') + (d === hoyN ? 'hoy' : '') + '" aria-label="' + DIAS[i] + '"><span>' + l + '</span><span class="marca ' + (listo ? 'hecho' : plan ? 'toca' : '') + '"></span></button>';
     }).join('') + '</div>';
-    if (s.active) {
-      h += '<div class="pila"><p class="aviso">Tienes un entrenamiento en curso: ' + esc(s.active.nombre) + '.</p><button class="btn primario grande" data-a="ent-continuar">Continuar entrenamiento</button><button class="liga" data-a="ent-descartar">Descartarlo</button></div>';
-    } else if (dia.items.length) {
-      h += '<p class="tenue" style="margin-bottom:10px">' + dia.items.length + ' ejercicios, unos ' + Gen.minutosDia(dia.items) + ' min' + (ver === hoyN && registro(S.hoy()) ? '. Ya registraste un entrenamiento hoy.' : '') + '</p>';
-      h += '<div class="lista">' + dia.items.map(it => filaItem(it, 'ver-ej')).join('') + '</div>';
-      h += '<div style="margin-top:20px"><button class="btn primario grande" data-a="ent-empezar" data-v="' + ver + '">Empezar entrenamiento</button></div>';
+    if (dia.items.length) {
+      h += '<div class="lista-cab"><div><h2>Ejercicios</h2><p class="tenue chico">' + dia.items.length + ' ejercicios, unos ' + Gen.minutosDia(dia.items) + ' min' + (a ? ', ' + avance() + ' series hechas' : '') + '</p></div>' +
+        (a ? '<button class="pildora parar" data-a="ent-terminar">Terminar</button>' : '<button class="pildora" data-a="ent-empezar" data-v="' + ver + '">Iniciar</button>') + '</div>';
+      h += '<div class="tarjeta lista-ej">' + dia.items.map((it, i) => '<div class="fila">' + filaItem(it, 'ej-abrir', i) + '</div>').join('') + '</div>';
+      if (ver === hoyN && registro(S.hoy()) && !a) h += '<p class="tenue chico" style="margin-top:12px">Ya registraste un entrenamiento hoy.</p>';
     } else {
-      h += '<p class="vacio">' + (ver === hoyN ? 'Hoy toca descansar. El descanso también es parte del plan.' : 'Día de descanso.') + ' Toca otro día de la semana para verlo o adelantarlo.</p>';
+      h += '<p class="vacio">' + (ver === hoyN ? 'Hoy toca descansar. El descanso también es parte del plan.' : 'Día de descanso.') + ' Toca otro día de la semana para verlo o adelantarlo.</p>' +
+        (a ? '<button class="btn" data-a="ent-terminar">Terminar el entrenamiento en curso</button>' : '');
     }
-    return h + '<p class="estado-sync">' + estadoSync() + '</p>';
-  }
-
-  // ---------- Entrenamiento ----------
-  function empezar(d) {
-    const dia = st().routine.dias[d];
-    A.preparar(); A.permiso();
-    st().active = {
-      fecha: S.hoy(), dia: d, nombre: dia.nombre, inicio: Date.now(), i: 0, finDescanso: 0, totalDescanso: 0,
-      items: dia.items.map(it => {
-        const prev = S.ultimo(it.ex);
-        return { ex: it.ex, nombre: S.ejercicio(it.ex).nombre, reps: it.reps, rest: it.rest, nota: it.nota || '', prev: prev ? prev.sets : null, sets: Array.from({ length: it.sets }, () => ({ kg: '', reps: '', ok: false })) };
-      })
+    return {
+      cab: '<div class="cab-fila"><div><p class="fecha">' + (ver === hoyN ? esc(fecha.charAt(0).toUpperCase() + fecha.slice(1)) : DIAS[ver - 1]) + '</p><h1>' + esc(dia.items.length ? dia.nombre : 'Descanso') + '</h1></div>' +
+        '<button class="pildora gris" data-a="hoy-editar" data-v="' + ver + '">Editar</button></div>',
+      html: h + '<p class="estado-sync">' + estadoSync() + '</p>', tabs: true
     };
-    S.guardar(); ui.entrenando = true; toastEl.hidden = true; A.pantalla(true); render(); scrollTo(0, 0);
-  }
-  function serieTxt(x, it) { return porTiempo(it.reps) ? '✓' : (x.kg ? x.kg + ' kg × ' : '') + (x.reps || '✓'); }
-  function vEntrenamiento() {
-    const a = st().active, it = a.items[a.i], e = S.ejercicio(it.ex);
-    const k = it.sets.findIndex(x => !x.ok), tiempo = porTiempo(it.reps);
-    const todo = a.items.every(x => x.sets.every(y => y.ok));
-    let h = '<div class="ent-cab"><button class="liga" data-a="ent-salir">Salir</button><span>Ejercicio ' + (a.i + 1) + ' de ' + a.items.length + '</span><button class="liga" data-a="ent-terminar">Terminar</button></div>';
-    h += '<section class="ent">' + fotoGrande(e) + '<h1>' + esc(e.nombre) + '</h1>';
-    h += '<p class="meta">' + (k >= 0 ? '<b>Serie ' + (k + 1) + ' de ' + it.sets.length + '</b>, ' + esc(it.reps) + (tiempo ? '' : ' repeticiones') : 'Ejercicio completo') + '</p>';
-    h += '<div class="series">' + it.sets.map((x, j) => '<span class="serie ' + (x.ok ? 'hecha' : j === k ? 'actual' : '') + '">' + (x.ok ? esc(serieTxt(x, it)) : j + 1) + '</span>').join('') + '</div>';
-    if (k >= 0) {
-      if (!tiempo) {
-        const p = it.prev ? it.prev[Math.min(k, it.prev.length - 1)] : null, ant = k > 0 ? it.sets[k - 1] : null;
-        h += '<div class="captura"><label class="campo"><span>Peso (kg)</span><input id="ent-kg" inputmode="decimal" placeholder="0" value="' + esc((ant && ant.kg) || (p && p.kg) || '') + '"></label>' +
-          '<label class="campo"><span>Repeticiones</span><input id="ent-reps" inputmode="numeric" placeholder="' + esc(it.reps) + '" value="' + esc(p && /^\d+$/.test(p.reps) ? p.reps : '') + '"></label></div>';
-        if (it.prev) h += '<p class="antes">La vez pasada: ' + it.prev.map(x => esc(serieTxt(x, it))).join(', ') + '</p>';
-      }
-      h += '<button class="btn primario grande" data-a="ent-serie">' + (tiempo ? 'Terminé' : 'Terminé la serie') + '</button>';
-    } else if (todo) {
-      h += '<button class="btn primario grande" data-a="ent-fin">Guardar entrenamiento</button>';
-    } else {
-      h += '<button class="btn primario grande" data-a="ent-sig">Siguiente ejercicio</button>';
-    }
-    if (k < 0) h += '<div style="margin-top:10px"><button class="btn" data-a="ent-otra">Agregar otra serie</button></div>';
-    h += '<details class="tips" open><summary>Cómo hacerlo</summary><ul>' + (e.tips || []).map(t => '<li>' + esc(t) + '</li>').join('') + '</ul>' + (it.nota ? '<p class="nota">' + esc(it.nota) + '</p>' : '') + '</details>';
-    h += '<div class="ent-nav"><button class="btn" data-a="ent-ant"' + (a.i === 0 ? ' disabled' : '') + '>Anterior</button><button class="btn" data-a="ent-sig"' + (a.i === a.items.length - 1 ? ' disabled' : '') + '>' + (k >= 0 ? 'Saltar ejercicio' : 'Siguiente') + '</button></div></section>';
-    return h;
-  }
-  function serieHecha() {
-    const a = st().active, it = a.items[a.i], k = it.sets.findIndex(x => !x.ok);
-    if (k < 0) return;
-    A.preparar();
-    const kg = $('#ent-kg') ? $('#ent-kg').value.trim().replace(',', '.') : '', reps = $('#ent-reps') ? $('#ent-reps').value.trim() : '';
-    it.sets[k] = { kg, reps, ok: true };
-    const rest = it.rest;
-    if (!it.sets.some(x => !x.ok)) {
-      let j = a.items.findIndex((x, n) => n > a.i && x.sets.some(y => !y.ok));
-      if (j < 0) j = a.items.findIndex(x => x.sets.some(y => !y.ok));
-      if (j < 0) { S.guardar(); render(); scrollTo(0, 0); return; }
-      a.i = j;
-    }
-    if (rest > 0) iniciarDescanso(rest); else { S.guardar(); render(); scrollTo(0, 0); }
-  }
-  function terminar() {
-    const a = st().active;
-    if (!a) return;
-    const items = a.items.map(it => ({ ex: it.ex, nombre: it.nombre, sets: it.sets.filter(x => x.ok).map(x => ({ kg: x.kg, reps: x.reps || it.reps })) })).filter(it => it.sets.length);
-    pararTick(); A.cancelar(); A.pantalla(false); descanso.hidden = true;
-    st().active = null; ui.entrenando = false;
-    if (!items.length) { S.guardar(); render(); toast('No registraste ninguna serie'); return; }
-    const min = Math.max(1, Math.round((Date.now() - a.inicio) / 60000)), prev = registro(a.fecha);
-    st().logs[a.fecha] = { fecha: a.fecha, nombre: a.nombre, min: (prev ? prev.min || 0 : 0) + min, items: (prev ? prev.items || [] : []).concat(items), updatedAt: Date.now() };
-    S.tocar('logs'); ui.tab = 'hoy'; ui.verDia = null; render(); scrollTo(0, 0);
-    const n = items.reduce((t, it) => t + it.sets.length, 0);
-    abrir(cabHoja('Entrenamiento guardado') + '<div class="resumen"><div><b>' + n + '</b><span>series</span></div><div><b>' + min + '</b><span>minutos</span></div><div><b>' + items.length + '</b><span>ejercicios</span></div></div><p class="tenue">Ya quedó marcado en tu calendario.</p><div style="margin-top:18px"><button class="btn primario" data-a="cerrar">Listo</button></div>');
-    sincronizar(false);
   }
 
-  // ---------- Descanso ----------
-  let tickT = null;
-  const CIRC = 2 * Math.PI * 86;
-  function iniciarDescanso(seg) {
-    const a = st().active;
-    a.totalDescanso = seg; a.finDescanso = Date.now() + seg * 1000; S.guardar();
-    A.programar(seg, textoSigue());
-    toastEl.hidden = true;
-    render(); scrollTo(0, 0); mostrarDescanso();
+  // ---------- Un ejercicio: series, descanso, notas ----------
+  function itemActual() { return ui.ej && st().routine ? st().routine.dias[ui.ej.dia].items[ui.ej.i] : null; }
+  function copiaItem() { const it = itemActual(), a = st().active; return JSON.stringify({ it, h: a && a.hechos[it.uid] ? a.hechos[it.uid] : null }); }
+  function finEdicion() { if (ui.ej.salir) ui.ej = null; else { ui.ej.editar = false; ui.ej.rueda = false; ui.ej.copia = null; } render(); }
+  function numeroSerie(se, i) { let n = 0; for (let k = 0; k <= i; k++) if (se[k].tipo !== 'c') n++; return n; }
+  function vEjercicio() {
+    const x = ui.ej, dia = st().routine.dias[x.dia], it = dia.items[x.i];
+    if (!it) { ui.ej = null; return pantalla(); }
+    const e = S.ejercicio(it.ex), ed = x.editar, cardio = e.tipo === 'k', a = st().active;
+    let h = '<section class="ej' + (ed ? ' editando' : '') + '"><div class="ej-img">' + fotoGrande(e) + G.Musculos.figura(e) + '</div>' +
+      '<div class="ej-titulo"><h1>' + esc(e.nombre) + '</h1><button class="info" data-a="ej-info" aria-label="Cómo se hace">i</button></div>';
+    h += '<h2 class="sub-t">Series</h2><div class="tarjeta' + (cardio ? ' sin-peso' : '') + '"><div class="st-cab"><span></span><span>' + (cardio ? 'Tiempo' : 'Repeticiones') + '</span>' + (cardio ? '' : '<button class="st-uni" data-a="ej-unidad" aria-label="Cambiar entre libras y kilos">Peso (<b>' + uni(it) + '</b>)</button>') + '</div>';
+    h += it.series.map((se, i) => {
+      const ok = hecho(it.uid, i), texto = !/^\d*$/.test(se.reps || '');
+      return '<div class="st-fila' + (ok && !ed ? ' hecha' : '') + (se.tipo === 'c' ? ' cal' : '') + '">' +
+        (ed ? '<button class="menos" data-a="se-quitar" data-v="' + i + '" aria-label="Quitar serie">−</button>' : '') +
+        '<button class="circ' + (se.tipo === 'c' ? ' cal' : '') + (ok && !ed ? ' ok' : '') + '" data-a="se-circ" data-v="' + i + '" aria-label="' + (ed ? 'Cambiar tipo de serie' : 'Marcar serie') + '">' + (ok && !ed ? '✓' : se.tipo === 'c' ? 'C' : numeroSerie(it.series, i)) + '</button>' +
+        '<input class="num" data-c="se-reps" data-v="' + i + '" value="' + esc(se.reps) + '" ' + (texto ? '' : 'inputmode="numeric" pattern="[0-9]*"') + ' aria-label="Repeticiones">' +
+        (cardio ? '' : '<input class="num" data-c="se-peso" data-v="' + i + '" value="' + esc(se.peso) + '" inputmode="decimal" placeholder="–" aria-label="Peso">') + '</div>';
+    }).join('');
+    if (ed) h += '<button class="st-agregar" data-a="se-agregar"><span>+</span>Agregar nueva serie</button>' +
+      '<p class="tenue chico st-nota">Toca el círculo de una serie para marcarla como calentamiento (C) o normal.</p>';
+    h += '<div class="st-desc" id="t-fila"><span>Descanso</span><button class="t-reloj' + (x.rueda ? ' abierta' : '') + '" id="t-reloj" data-a="t-rueda" aria-label="Cambiar el tiempo de descanso">' + reloj(it.rest) + '</button>' +
+      (ed ? '<span class="t-hueco"></span>' : '<button class="pildora suave" id="t-btn" data-a="t-toggle">Iniciar</button>') + '</div>' + (x.rueda ? rueda(it.rest) : '') + '</div>';
+    h += '<h2 class="sub-t">Notas</h2><textarea class="notas" data-c="ej-nota" maxlength="300" placeholder="Por ejemplo: asiento en la posición 4, 2 repeticiones de reserva">' + esc(it.nota || '') + '</textarea>';
+    const ico = d => '<span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true">' + d + '</svg></span>';
+    if (ed) h += '<button class="fila-liga" data-a="it-cambiar">' + ico('<path d="M7 9h11l-3-3M17 15H6l3 3"/>') + '<span>Reemplazar ejercicio</span></button>' +
+      '<button class="fila-liga" data-a="ej-editar" data-id="' + esc(it.ex) + '">' + ico('<path d="M5 19l1-4L16 5l3 3L9 18z"/>') + '<span>Cambiar nombre, tips o imagen</span></button>' +
+      '<button class="fila-liga rojo" data-a="it-quitar">' + ico('<path d="M6 7h12M9 7V5h6v2M8 7l1 12h6l1-12"/>') + '<span>Quitar de este día</span></button>';
+    else h += '<button class="fila-liga" data-a="ej-progreso">' + ico('<path d="M5 16l4-4 3 3 6-7M14 8h4v4"/>') + '<span>Progreso del ejercicio</span><span class="chev">›</span></button>';
+    h += '</section>';
+    const cuenta = '<span class="cuenta">' + (x.i + 1) + ' de ' + dia.items.length + '</span>';
+    return {
+      cab: ed ? '<div class="ej-cab ed"><button class="pildora gris" data-a="ej-cancelar">Cancelar</button>' + cuenta + '<button class="pildora" data-a="ej-guardar-ed">Guardar</button></div>'
+        : '<div class="ej-cab"><button class="redondo" data-a="ej-volver" aria-label="Volver"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>' + cuenta +
+          '<span class="flechas"><button data-a="ej-mover" data-v="-1" aria-label="Ejercicio anterior"' + (x.i === 0 ? ' disabled' : '') + '><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button><button data-a="ej-mover" data-v="1" aria-label="Ejercicio siguiente"' + (x.i === dia.items.length - 1 ? ' disabled' : '') + '><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></span>' +
+          '<button class="redondo" data-a="ej-menu" aria-label="Más opciones"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></div>',
+      html: h,
+      pie: ed ? '' : (a ? '<button class="flota gris" data-a="ent-terminar">Terminar entrenamiento</button>' : '<button class="flota" data-a="ent-empezar" data-v="' + x.dia + '">Comienza a entrenar</button>')
+    };
   }
-  function textoSigue() {
-    const a = st().active, it = a.items[a.i], k = it.sets.findIndex(x => !x.ok);
-    return 'Sigue: ' + it.nombre + (k >= 0 ? ', serie ' + (k + 1) + ' de ' + it.sets.length : '');
+
+  // ---------- Ruedita para el tiempo de descanso (máximo 5 minutos) ----------
+  const PASO_R = 38, MAX_DESC = 300;
+  function rueda(seg) {
+    const col = (k, vals) => '<div class="rueda-col" data-k="' + k + '"><i></i>' + vals.map(v => '<button data-a="rueda-ir" data-v="' + v + '">' + String(v).padStart(2, '0') + '</button>').join('') + '<i></i></div>';
+    const mins = [0, 1, 2, 3, 4, 5], segs = []; for (let i = 0; i < 60; i += 5) segs.push(i);
+    return '<div class="rueda" id="rueda" data-m="' + Math.floor(seg / 60) + '" data-s="' + Math.round((seg % 60) / 5) + '"><div class="rueda-banda"></div>' + col('m', mins) + '<span class="rueda-pts">:</span>' + col('s', segs) + '</div>';
   }
-  function mostrarDescanso() {
-    const a = st().active, it = a.items[a.i], k = it.sets.findIndex(x => !x.ok);
-    descanso.className = ''; descanso.hidden = false;
-    descanso.innerHTML = '<p class="rotulo" id="d-rotulo">Descanso</p>' +
-      '<div class="plato"><svg viewBox="0 0 200 200" aria-hidden="true"><circle class="pista" cx="100" cy="100" r="86"/><circle class="ranura" cx="100" cy="100" r="66"/><circle class="ranura" cx="100" cy="100" r="60"/>' +
-      '<circle class="resto" id="d-anillo" cx="100" cy="100" r="86" stroke-dasharray="' + CIRC.toFixed(1) + '" stroke-dashoffset="0"/></svg><span class="reloj" id="d-reloj" role="timer"></span></div>' +
-      '<p class="sigue">Sigue<b>' + esc(it.nombre) + (k >= 0 ? ', serie ' + (k + 1) + ' de ' + it.sets.length : '') + '</b></p>' +
-      '<div class="fila-btn"><button class="btn" data-a="d-ajuste" data-v="-15">−15 s</button><button class="btn primario" data-a="d-saltar">Saltar</button><button class="btn" data-a="d-ajuste" data-v="15">+15 s</button></div>';
-    tick();
-    if (!tickT) tickT = setInterval(tick, 200);
+  let ruedaT = null;
+  function prepararRueda() {
+    const r = $('#rueda'); if (!r) return;
+    r.querySelectorAll('.rueda-col').forEach(c => {
+      c.scrollTop = (+r.dataset[c.dataset.k]) * PASO_R;
+      c.addEventListener('scroll', () => { clearTimeout(ruedaT); ruedaT = setTimeout(leerRueda, 90); }, { passive: true });
+    });
+    marcarRueda();
   }
-  function pararTick() { clearInterval(tickT); tickT = null; }
-  function tick() {
-    const a = st().active;
-    if (!a || !a.finDescanso) { pararTick(); return; }
-    const ms = a.finDescanso - Date.now();
-    if (ms <= 0) { finDescanso(true); return; }
-    const r = $('#d-reloj'), an = $('#d-anillo');
-    if (r) r.textContent = reloj(Math.ceil(ms / 1000));
-    if (an) an.setAttribute('stroke-dashoffset', (CIRC * (1 - ms / (a.totalDescanso * 1000))).toFixed(1));
+  function marcarRueda() {
+    document.querySelectorAll('#rueda .rueda-col').forEach(c => { const i = Math.round(c.scrollTop / PASO_R); c.querySelectorAll('button').forEach((b, k) => b.classList.toggle('sel', k === i)); });
   }
-  function finDescanso(sonar) {
-    const a = st().active;
-    pararTick();
-    // En la app nativa, si el descanso acabó hace rato, la notificación ya sonó: no repetir el pitido.
-    const yaAviso = A.nativo && a && a.finDescanso && Date.now() - a.finDescanso > 2500;
-    if (a) { a.finDescanso = 0; S.guardar(); }
-    if (!sonar) { A.cancelar(); descanso.hidden = true; return; }
-    if (yaAviso) A.cancelar();
-    else if (!A.sonoATiempo()) A.ahora();
-    else { A.quitarAviso(); if (navigator.vibrate) navigator.vibrate([200, 100, 200]); }
-    const r = $('#d-reloj'), ro = $('#d-rotulo'), an = $('#d-anillo');
-    if (r) r.textContent = '0:00';
-    if (ro) ro.textContent = '¡A darle!';
-    if (an) an.setAttribute('stroke-dashoffset', CIRC.toFixed(1));
-    descanso.classList.add('listo');
-    setTimeout(() => { if (!st().active || !st().active.finDescanso) descanso.hidden = true; }, 1500);
+  function leerRueda() {
+    const it = itemActual(), cm = $('#rueda [data-k="m"]'), cs = $('#rueda [data-k="s"]');
+    if (!it || !cm || !cs) return;
+    const m = Math.max(0, Math.min(5, Math.round(cm.scrollTop / PASO_R)));
+    let s = Math.max(0, Math.min(11, Math.round(cs.scrollTop / PASO_R))) * 5;
+    if (m === 5 && s > 0) { s = 0; cs.scrollTo({ top: 0, behavior: 'smooth' }); }
+    marcarRueda();
+    const seg = Math.min(MAX_DESC, m * 60 + s);
+    if (seg === it.rest) return;
+    it.rest = seg; S.tocar('routine');
+    // Si el descanso ya va corriendo, sigue con el tiempo nuevo.
+    if (corriendo()) { if (seg > 0) iniciarTimer(seg, 'Sigue: ' + S.ejercicio(it.ex).nombre); else pararTimer(true); }
+    pintarTimer();
   }
 
   // ---------- Rutina ----------
   function vRutina() {
     const dias = st().routine.dias;
-    return '<header class="cab"><h1>Tu semana</h1><p class="tenue">Toca un día para cambiar ejercicios, series o descansos.</p></header><div class="lista">' +
-      DIAS.map((n, i) => { const d = dias[i + 1]; return '<button class="fila" data-a="rut-dia" data-v="' + (i + 1) + '"><span class="cuerpo"><b>' + n + '</b><span>' + esc(d.items.length ? d.nombre : 'Descanso') + '</span></span><span class="der">' + (d.items.length ? d.items.length + ' ejercicios, ' + Gen.minutosDia(d.items) + ' min' : '') + '</span></button>'; }).join('') + '</div>';
+    return {
+      cab: '<h1>Tu semana</h1><p class="tenue chico">Toca un día para armarlo o cambiarlo.</p>',
+      html: '<div class="lista">' + DIAS.map((n, i) => { const d = dias[i + 1]; return '<button class="fila" data-a="rut-dia" data-v="' + (i + 1) + '"><span class="cuerpo"><b>' + n + '</b><span>' + esc(d.items.length ? d.nombre : 'Descanso') + '</span></span><span class="der">' + (d.items.length ? d.items.length + ' ejercicios, ' + Gen.minutosDia(d.items) + ' min' : '') + '</span></button>'; }).join('') + '</div>',
+      tabs: true
+    };
   }
   function vDia() {
     const d = st().routine.dias[ui.dia];
-    let h = '<button class="liga volver" data-a="rut-volver">‹ Tu semana</button><header class="cab"><p class="fecha">' + DIAS[ui.dia - 1] + '</p>' +
-      '<label class="campo" style="margin-top:6px"><span>Nombre de la sesión</span><input data-c="dia-nombre" maxlength="50" value="' + esc(d.items.length ? d.nombre : '') + '" placeholder="Descanso"></label></header>';
+    let h = '<label class="campo" style="margin-top:0"><span>Nombre de la sesión</span><input data-c="dia-nombre" maxlength="50" value="' + esc(d.items.length ? d.nombre : '') + '" placeholder="Descanso"></label>';
     if (d.items.length) {
-      h += '<p class="tenue chico" style="margin-bottom:8px">' + d.items.length + ' ejercicios, unos ' + Gen.minutosDia(d.items) + ' min</p><div class="lista">' +
-        d.items.map((it, i) => '<div class="fila"><span class="orden"><button data-a="it-mover" data-u="' + it.uid + '" data-v="-1" aria-label="Subir"' + (i === 0 ? ' disabled' : '') + '>▲</button><button data-a="it-mover" data-u="' + it.uid + '" data-v="1" aria-label="Bajar"' + (i === d.items.length - 1 ? ' disabled' : '') + '>▼</button></span>' + filaItem(it, 'it-editar').replace('class="fila"', 'class="fila-in"') + '</div>').join('') + '</div>';
+      h += '<p class="tenue chico" style="margin:12px 0 6px">' + d.items.length + ' ejercicios, unos ' + Gen.minutosDia(d.items) + ' min. Toca uno para cambiar sus series.</p><div class="tarjeta lista-ej">' +
+        d.items.map((it, i) => '<div class="fila"><span class="orden"><button data-a="it-mover" data-v="' + i + '" data-d="-1" aria-label="Subir"' + (i === 0 ? ' disabled' : '') + '>▲</button><button data-a="it-mover" data-v="' + i + '" data-d="1" aria-label="Bajar"' + (i === d.items.length - 1 ? ' disabled' : '') + '>▼</button></span>' + filaItem(it, 'ej-abrir-ed', i) + '</div>').join('') + '</div>';
     } else h += '<p class="vacio">Este día es de descanso. Agrega un ejercicio para convertirlo en día de entrenamiento.</p>';
-    h += '<div class="pila" style="margin-top:18px"><button class="btn primario" data-a="it-agregar">Agregar ejercicio</button><button class="btn" data-a="rut-cambiar">Intercambiar con otro día</button>' +
-      (d.items.length ? '<button class="btn peligro" data-a="rut-descanso">Dejar como día de descanso</button>' : '') + '</div>';
-    return h;
-  }
-  function itemActual() { return st().routine.dias[ui.dia].items.find(x => x.uid === ui.item.uid); }
-  function hojaItem(uid) {
-    const it = st().routine.dias[ui.dia].items.find(x => x.uid === uid), e = S.ejercicio(it.ex);
-    ui.item = { uid, sets: it.sets, rest: it.rest };
-    abrir(cabHoja(e.nombre, G.GRUPOS[e.grupo] || '') +
-      '<div class="campo"><span>Series</span><div class="paso"><button data-a="it-paso" data-k="sets" data-v="-1" aria-label="Menos series">−</button><output id="o-sets">' + it.sets + '</output><button data-a="it-paso" data-k="sets" data-v="1" aria-label="Más series">+</button></div></div>' +
-      '<label class="campo"><span>Repeticiones o tiempo (por ejemplo 8-12, 30 s o 15 min)</span><input id="it-reps" maxlength="24" value="' + esc(it.reps) + '"></label>' +
-      '<div class="campo"><span>Descanso entre series</span><div class="paso"><button data-a="it-paso" data-k="rest" data-v="-15" aria-label="Menos descanso">−</button><output id="o-rest">' + reloj(it.rest) + '</output><button data-a="it-paso" data-k="rest" data-v="15" aria-label="Más descanso">+</button></div></div>' +
-      '<label class="campo"><span>Nota para ti</span><input id="it-nota" maxlength="120" placeholder="Por ejemplo: asiento en la posición 4" value="' + esc(it.nota || '') + '"></label>' +
-      '<div class="pila" style="margin-top:18px"><button class="btn primario" data-a="it-guardar">Guardar cambios</button><div class="fila-btn"><button class="btn" data-a="ver-ej" data-id="' + esc(it.ex) + '">Cómo se hace</button><button class="btn" data-a="it-cambiar">Cambiar ejercicio</button></div><button class="btn peligro" data-a="it-quitar">Quitar de este día</button></div>');
-    ui.item = { uid, sets: it.sets, rest: it.rest };
+    h += '<div class="pila" style="margin-top:16px"><button class="btn" data-a="rut-cambiar">Intercambiar con otro día</button>' + (d.items.length ? '<button class="btn peligro" data-a="rut-descanso">Dejar como día de descanso</button>' : '') + '</div>';
+    return {
+      cab: '<button class="liga volver" data-a="rut-volver">‹ Tu semana</button><h1>' + DIAS[ui.dia - 1] + '</h1>',
+      html: h, pie: '<button class="btn primario" data-a="it-agregar">Agregar ejercicio</button>', tabs: true
+    };
   }
 
   // ---------- Elegir, ver y editar ejercicios ----------
@@ -325,56 +395,64 @@
     const l = S.todos().filter(e => (!ui.grupo || e.grupo === ui.grupo) && (!q || e.nombre.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').indexOf(q) >= 0));
     return l.length ? l.map(e => '<button class="fila" data-a="pick-ok" data-id="' + esc(e.id) + '">' + miniFoto(e) + '<span class="cuerpo"><b>' + esc(e.nombre) + '</b><span>' + (G.GRUPOS[e.grupo] || '') + '</span></span></button>').join('') : '<p class="vacio">No hay ejercicios con ese nombre. Puedes crear el tuyo.</p>';
   }
-  function hojaPick(modo, uid) {
-    const pick = { modo, uid };
-    abrir(cabHoja(modo === 'cambiar' ? 'Cambiar por otro ejercicio' : 'Agregar ejercicio') +
+  function hojaPick(modo) {
+    abrir(cabHoja(modo === 'cambiar' ? 'Reemplazar por otro ejercicio' : 'Agregar ejercicio') +
       '<label class="campo" style="margin-top:0"><input id="pick-q" data-c="pick-q" type="search" placeholder="Buscar ejercicio"></label>' +
       '<div class="chips" style="margin-top:10px"><button class="chip" data-a="pick-g" data-v="" aria-pressed="' + (!ui.grupo) + '">Todos</button>' + Object.keys(G.GRUPOS).filter(g => g !== 'otro').map(g => '<button class="chip" data-a="pick-g" data-v="' + g + '" aria-pressed="' + (ui.grupo === g) + '">' + G.GRUPOS[g] + '</button>').join('') + '</div>' +
       '<div class="lista" id="pick-lista">' + listaPick() + '</div><div style="margin-top:16px"><button class="btn" data-a="ej-nuevo">Crear un ejercicio propio</button></div>');
-    ui.pick = pick;
+    ui.pick = { modo };
   }
   function ponerEjercicio(id) {
-    const d = st().routine.dias[ui.dia], e = S.ejercicio(id), pick = ui.pick || { modo: 'agregar' };
-    if (pick.modo === 'cambiar') { const it = d.items.find(x => x.uid === pick.uid); if (it) it.ex = id; }
+    const nDia = ui.ej ? ui.ej.dia : ui.dia, d = st().routine.dias[nDia], e = S.ejercicio(id), pick = ui.pick || { modo: 'agregar' };
+    if (pick.modo === 'cambiar' && ui.ej) { const it = d.items[ui.ej.i]; if (it) it.ex = id; }
     else {
-      const dosis = G.EX[id] ? Gen.dosis(st().profile.encuesta, G.EX[id], d.items.length) : { sets: 3, reps: '10-12', rest: 60 };
       if (!d.items.length && (!d.nombre || d.nombre === 'Descanso')) d.nombre = 'Entrenamiento';
-      d.items.push({ uid: Gen.uid(), ex: id, sets: dosis.sets, reps: e.tipo === 'k' ? '15 min' : dosis.reps, rest: e.tipo === 'k' ? 0 : dosis.rest, nota: '' });
+      const it = Gen.nuevoItem(e, st().profile.encuesta, d.items.length);
+      if (e.tipo === 'k') { it.series = [{ reps: '15 min', peso: '', tipo: 'n' }]; it.rest = 0; it.nota = ''; }
+      d.items.push(it);
     }
-    S.tocar('routine'); cerrar(); render();
+    S.tocar('routine'); cerrar(); render(true);
   }
   function hojaEjercicio(id) {
-    const e = S.ejercicio(id);
+    const e = S.ejercicio(id), m = G.Musculos.texto(e);
     abrir(cabHoja(e.nombre, G.GRUPOS[e.grupo] || '') + fotoGrande(e) +
+      (m.p.length ? '<div class="musc-info">' + G.Musculos.figura(e) + '<div><p><b>Principales</b>' + esc(m.p.join(', ')) + '</p>' + (m.s.length ? '<p><b>Secundarios</b>' + esc(m.s.join(', ')) + '</p>' : '') + '</div></div>' : '') +
       ((e.tips || []).length ? '<ul class="tips-l">' + e.tips.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '<p class="tenue" style="margin-top:12px">Todavía no tiene tips. Agrega los tuyos.</p>') +
-      '<div style="margin-top:18px"><button class="btn" data-a="ej-editar" data-id="' + esc(id) + '">Editar nombre, tips o foto</button></div>');
+      '<div style="margin-top:18px"><button class="btn" data-a="ej-editar" data-id="' + esc(id) + '">Cambiar nombre, tips o imagen</button></div>');
   }
   function hojaEditarEj(id) {
     const e = id ? S.ejercicio(id) : { nombre: '', grupo: ui.grupo || 'pecho', tips: [] };
-    const propio = !id || !G.EX[id];
+    const propio = !id || !G.EX[id], pick = ui.pick;
     abrir(cabHoja(id ? 'Editar ejercicio' : 'Ejercicio nuevo') +
       '<label class="campo" style="margin-top:0"><span>Nombre</span><input id="ej-nombre" maxlength="60" value="' + esc(e.nombre) + '"></label>' +
       (propio ? '<label class="campo"><span>Zona</span><select id="ej-grupo">' + Object.keys(G.GRUPOS).map(g => '<option value="' + g + '"' + (e.grupo === g ? ' selected' : '') + '>' + G.GRUPOS[g] + '</option>').join('') + '</select></label>' : '') +
       '<label class="campo"><span>Tips, uno por renglón</span><textarea id="ej-tips">' + esc((e.tips || []).join('\n')) + '</textarea></label>' +
-      '<label class="campo"><span>Foto propia (opcional)</span><input id="ej-foto" type="file" accept="image/*"></label>' +
+      '<label class="campo"><span>Imagen propia (opcional)</span><input id="ej-foto" type="file" accept="image/*"></label>' +
       '<div class="pila" style="margin-top:18px"><button class="btn primario" data-a="ej-guardar" data-id="' + esc(id || '') + '">Guardar ejercicio</button>' +
       (id && propio ? '<button class="btn peligro" data-a="ej-borrar" data-id="' + esc(id) + '">Borrar ejercicio</button>' : '') +
       (id && !propio && st().custom.cambios[id] ? '<button class="btn" data-a="ej-restaurar" data-id="' + esc(id) + '">Volver al original</button>' : '') + '</div>');
-    ui.pick = ui.pickPend || null; ui.pickPend = null;
+    ui.pick = id ? null : pick;
   }
   function reducirFoto(archivo) {
     return new Promise(res => {
       if (!archivo) return res(null);
       const img = new Image(), url = URL.createObjectURL(archivo);
       img.onload = () => {
-        const esc2 = Math.min(1, 560 / Math.max(img.width, img.height)), c = document.createElement('canvas');
-        c.width = Math.round(img.width * esc2); c.height = Math.round(img.height * esc2);
+        const k = Math.min(1, 560 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
         URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', 0.6));
       };
       img.onerror = () => { URL.revokeObjectURL(url); res(null); };
       img.src = url;
     });
+  }
+  function hojaProgreso(id) {
+    const e = S.ejercicio(id), h = S.historial(id);
+    abrir(cabHoja('Progreso', e.nombre) + (h.length ? '<div class="lista">' + h.slice(0, 30).map(r => {
+      const d = new Date(r.fecha + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+      return '<div class="fila"><span class="cuerpo"><b>' + d + '</b><span>' + r.sets.map(x => esc((x.kg ? x.kg + ' ' + (r.u || unidad()) + ' × ' : '') + (x.reps || '✓'))).join(', ') + '</span></span></div>';
+    }).join('') + '</div>' : '<p class="tenue">Aquí va a aparecer cada vez que hagas este ejercicio, con sus pesos y repeticiones.</p>'));
   }
 
   // ---------- Calendario ----------
@@ -397,17 +475,20 @@
       const f = S.fechaISO(new Date(m.y, m.m, d)), plan = f >= hoyISO && st().routine.dias[S.diaSemana(new Date(m.y, m.m, d))].items.length > 0;
       celdas += '<button class="dia ' + (registro(f) ? 'hecho ' : '') + (plan ? 'toca ' : '') + (f === hoyISO ? 'es-hoy ' : '') + (f > hoyISO ? 'futuro' : '') + '" data-a="cal-dia" data-v="' + f + '">' + d + '<i></i></button>';
     }
-    return '<header class="cab"><h1>Calendario</h1></header>' +
-      '<div class="resumen"><div><b>' + e.mes + '</b><span>este mes</span></div><div><b>' + e.racha + '</b><span>' + (e.racha === 1 ? 'semana seguida' : 'semanas seguidas') + '</span></div><div><b>' + e.total + '</b><span>en total</span></div></div>' +
-      '<div class="mes-cab"><button data-a="cal-mes" data-v="-1" aria-label="Mes anterior">‹</button><h2>' + MESES[m.m] + ' ' + m.y + '</h2><button data-a="cal-mes" data-v="1" aria-label="Mes siguiente">›</button></div>' +
-      '<div class="mes">' + celdas + '</div><div class="leyenda"><span><i></i>Entrenaste</span><span><i class="p"></i>Toca entrenar</span></div>';
+    return {
+      cab: '<h1>Calendario</h1>',
+      html: '<div class="resumen"><div><b>' + e.mes + '</b><span>este mes</span></div><div><b>' + e.racha + '</b><span>' + (e.racha === 1 ? 'semana seguida' : 'semanas seguidas') + '</span></div><div><b>' + e.total + '</b><span>en total</span></div></div>' +
+        '<div class="mes-cab"><button data-a="cal-mes" data-v="-1" aria-label="Mes anterior">‹</button><h2>' + MESES[m.m] + ' ' + m.y + '</h2><button data-a="cal-mes" data-v="1" aria-label="Mes siguiente">›</button></div>' +
+        '<div class="mes">' + celdas + '</div><div class="leyenda"><span><i></i>Entrenaste</span><span><i class="p"></i>Toca entrenar</span></div>',
+      tabs: true
+    };
   }
   function hojaFecha(f) {
     const d = new Date(f + 'T12:00:00'), r = registro(f), dia = st().routine.dias[S.diaSemana(d)];
     const titulo = d.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
     let h = cabHoja(titulo.charAt(0).toUpperCase() + titulo.slice(1), r ? r.nombre + (r.min ? ', ' + r.min + ' min' : '') : '');
     if (r) {
-      h += '<div class="lista">' + (r.items || []).map(it => '<div class="fila"><span class="cuerpo"><b>' + esc(it.nombre || S.ejercicio(it.ex).nombre) + '</b><span>' + it.sets.map(x => esc((x.kg ? x.kg + ' kg × ' : '') + x.reps)).join(', ') + '</span></span></div>').join('') + '</div>' +
+      h += '<div class="lista">' + (r.items || []).map(it => '<div class="fila"><span class="cuerpo"><b>' + esc(it.nombre || S.ejercicio(it.ex).nombre) + '</b><span>' + it.sets.map(x => esc((x.kg ? x.kg + ' ' + (it.u || r.u || 'kg') + ' × ' : '') + (x.reps || '✓'))).join(', ') + '</span></span></div>').join('') + '</div>' +
         '<div style="margin-top:18px"><button class="btn peligro" data-a="cal-borrar" data-v="' + f + '">Borrar este registro</button></div>';
     } else if (f > S.hoy()) {
       h += '<p class="tenue">' + (dia.items.length ? 'Ese día toca: ' + esc(dia.nombre) + '.' : 'Ese día toca descanso.') + '</p>';
@@ -425,24 +506,33 @@
   function vAjustes() {
     const s = st(), p = s.profile, m = s.sync;
     let drive;
-    if (!D.configurado()) drive = '<p>Falta pegar el ID de cliente de Google en el archivo js/config.js (los pasos están en LEEME.md). Mientras tanto, todo se guarda en este teléfono.</p>';
+    if (!D.configurado()) drive = '<p>Falta el ID de cliente de Google en el archivo js/config.js. Mientras tanto, todo se guarda en este teléfono.</p>';
     else if (!m.conectado) drive = '<p>Conéctate para guardar una copia en tu Drive, dentro de la carpeta ' + esc(G.CONFIG.CARPETA_DRIVE) + ' / ' + esc(p.nombre) + '.</p><div style="margin-top:12px"><button class="btn primario" data-a="dr-conectar">Conectar con Google</button></div>';
     else drive = '<p>' + (m.correo ? 'Conectado como ' + esc(m.correo) + '. ' : 'Conectado. ') + (m.ultima ? 'Última copia ' + hace(m.ultima) + '.' : 'Todavía no se sube ninguna copia.') + (m.pendiente ? ' Hay cambios por subir.' : '') + '</p><div class="pila" style="margin-top:12px"><button class="btn" data-a="dr-sync">Sincronizar ahora</button><button class="liga" data-a="dr-salir">Desconectar</button></div>';
-    return '<header class="cab"><h1>Ajustes</h1></header><div class="pila-g">' +
-      '<section class="grupo"><h2>' + esc(p.nombre) + '</h2><p>Objetivo: ' + Gen.OBJ[p.encuesta.objetivo] + '. Plan de ' + esc(p.plan.titulo) + ', unos ' + p.plan.minutos + ' min por sesión.</p><div style="margin-top:12px"><button class="btn" data-a="aj-encuesta">Volver a hacer la encuesta</button></div></section>' +
-      '<section class="grupo"><h2>Google Drive</h2>' + drive + '</section>' +
-      '<section class="grupo"><h2>Pitido del descanso</h2>' + interruptor('sonido', 'Sonar al terminar el descanso') + interruptor('cuenta', 'Avisar 3, 2, 1 antes') + interruptor('enSilencio', 'Sonar aunque el iPhone esté en silencio', 'Puede pausar tu música mientras suena') + '<div style="margin-top:8px"><button class="btn" data-a="aj-probar">Probar el pitido</button></div></section>' +
-      '<section class="grupo"><h2>Pantalla</h2>' + interruptor('pantalla', 'Mantener la pantalla encendida al entrenar', D.nativo ? 'Si bloqueas el iPhone, el aviso llega como notificación con sonido' : 'Con el iPhone bloqueado el pitido no puede sonar') + '</section>' +
-      '<section class="grupo"><h2>Uso sin internet</h2><p id="aj-fotos">Revisando fotos guardadas…</p>' + (D.nativo ? '' : '<div style="margin-top:12px"><button class="btn" data-a="aj-fotos">Descargar todas las fotos</button></div>') + '</section>' +
-      '<section class="grupo"><h2>Tus datos</h2><div class="pila"><button class="btn" data-a="aj-exportar">Descargar una copia</button><button class="btn peligro" data-a="aj-borrar">Borrar todo de este teléfono</button></div></section></div>';
+    const plan = p.plan && p.plan.manual ? 'Rutina armada por ti.' : 'Objetivo: ' + Gen.OBJ[p.encuesta.objetivo] + '. Plan de ' + esc(p.plan.titulo) + ', unos ' + p.plan.minutos + ' min por sesión.';
+    const u = unidad();
+    return {
+      cab: '<h1>Ajustes</h1>',
+      html: '<div class="pila-g">' +
+        '<section class="grupo sin-linea"><h2>' + esc(p.nombre) + '</h2><p>' + plan + '</p><div style="margin-top:12px"><button class="btn" data-a="aj-encuesta">' + (p.plan && p.plan.manual ? 'Hacer la encuesta' : 'Volver a hacer la encuesta') + '</button></div></section>' +
+        '<section class="grupo"><h2>Entrenamiento</h2><div class="interruptor"><span>Unidad de peso<small>Para ejercicios nuevos. En cada ejercicio la cambias tocando "Peso (lb)"</small></span><span class="seg"><button data-a="aj-unidad" data-v="lb" aria-pressed="' + (u === 'lb') + '">lb</button><button data-a="aj-unidad" data-v="kg" aria-pressed="' + (u === 'kg') + '">kg</button></span></div>' +
+        interruptor('autoDescanso', 'Iniciar el descanso al marcar una serie', 'Si lo apagas, el descanso solo empieza cuando tocas Iniciar') + '</section>' +
+        '<section class="grupo"><h2>Google Drive</h2>' + drive + '</section>' +
+        '<section class="grupo"><h2>Pitido del descanso</h2>' + interruptor('sonido', 'Sonar al terminar el descanso') + interruptor('cuenta', 'Avisar 3, 2, 1 antes') + interruptor('enSilencio', 'Sonar aunque el iPhone esté en silencio', 'Puede pausar tu música mientras suena') + '<div style="margin-top:8px"><button class="btn" data-a="aj-probar">Probar el pitido</button></div></section>' +
+        '<section class="grupo"><h2>Pantalla</h2>' + interruptor('pantalla', 'Mantener la pantalla encendida al entrenar', D.nativo ? 'Si bloqueas el iPhone, el aviso llega como notificación con sonido' : 'Con el iPhone bloqueado el pitido no puede sonar') + '</section>' +
+        '<section class="grupo"><h2>Uso sin internet</h2><p id="aj-fotos">Revisando dibujos guardados…</p>' + (D.nativo ? '' : '<div style="margin-top:12px"><button class="btn" data-a="aj-fotos">Descargar todos los dibujos</button></div>') + '</section>' +
+        '<section class="grupo"><h2>Créditos</h2><p>Dibujos de los ejercicios: Everkinetic (everkinetic.com), licencia CC BY-SA 4.0, adaptados a fondo oscuro. Los de cardio son propios de esta app.</p></section>' +
+        '<section class="grupo"><h2>Tus datos</h2><div class="pila"><button class="btn" data-a="aj-exportar">Descargar una copia</button><button class="btn peligro" data-a="aj-borrar">Borrar todo de este teléfono</button></div></section></div>',
+      tabs: true
+    };
   }
-  function urlsFotos() { const u = []; G.EXERCISES.forEach(e => S.fotos(e).forEach(x => u.push(x))); return u; }
+  function urlsFotos() { const u = {}; G.EXERCISES.forEach(e => S.fotos(e).forEach(x => { u[x] = 1; })); return Object.keys(u); }
   async function contarFotos() {
     const el = $('#aj-fotos'); if (!el) return;
     const total = urlsFotos().length;
-    if (D.nativo) { el.textContent = 'Las ' + total + ' fotos vienen dentro de la app. Todo funciona sin internet.'; return; }
+    if (D.nativo) { el.textContent = 'Los ' + total + ' dibujos vienen dentro de la app. Todo funciona sin internet.'; return; }
     if (!('caches' in window) || !navigator.serviceWorker || !navigator.serviceWorker.controller) { el.textContent = 'El modo sin internet se activa cuando la app está publicada en su dirección https e instalada.'; return; }
-    try { const c = await caches.open(CACHE_FOTOS), n = (await c.keys()).length; if ($('#aj-fotos')) $('#aj-fotos').textContent = n >= total ? 'Las ' + total + ' fotos están guardadas. Todo funciona sin internet.' : n + ' de ' + total + ' fotos guardadas. Descárgalas con wifi para no gastar datos.'; } catch (e) { el.textContent = ''; }
+    try { const c = await caches.open(CACHE_FOTOS), n = (await c.keys()).length; if ($('#aj-fotos')) $('#aj-fotos').textContent = n >= total ? 'Los ' + total + ' dibujos están guardados. Todo funciona sin internet.' : n + ' de ' + total + ' dibujos guardados. Descárgalos con wifi para no gastar datos.'; } catch (e) { el.textContent = ''; }
   }
   let bajando = false;
   async function bajarFotos(manual) {
@@ -450,20 +540,20 @@
     if (!navigator.onLine) { if (manual) toast('Sin internet'); return; }
     bajando = true;
     const urls = urlsFotos(); let i = 0, ok = 0;
-    async function obrero() { while (i < urls.length) { const u = urls[i++]; try { const r = await fetch(u); if (r.ok) ok++; } catch (e) { /* se reintenta después */ } const el = $('#aj-fotos'); if (el) el.textContent = 'Descargando fotos: ' + i + ' de ' + urls.length; } }
+    async function obrero() { while (i < urls.length) { const u = urls[i++]; try { const r = await fetch(u); if (r.ok) ok++; } catch (e) { /* se reintenta después */ } const el = $('#aj-fotos'); if (el) el.textContent = 'Descargando dibujos: ' + i + ' de ' + urls.length; } }
     await Promise.all([obrero(), obrero(), obrero(), obrero()]);
     bajando = false;
     if (ok === urls.length) localStorage.setItem('gym.fotos', '1');
-    if (manual) toast(ok === urls.length ? 'Fotos guardadas' : 'Faltaron ' + (urls.length - ok) + ' fotos. Intenta de nuevo');
+    if (manual) toast(ok === urls.length ? 'Dibujos guardados' : 'Faltaron ' + (urls.length - ok) + ' dibujos. Intenta de nuevo');
     contarFotos();
   }
 
   // ---------- Google Drive ----------
+  function ocupado() { return !hoja.hidden || ui.enc || ui.plan || /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || ''); }
   async function sincronizar(manual) {
     const r = await D.sincronizar();
     if (r.ok) {
-      const escribiendo = /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '');
-      if (hoja.hidden && !ui.entrenando && !ui.enc && !ui.plan && !escribiendo && (r.cambio || ui.tab === 'hoy' || ui.tab === 'ajustes')) render();
+      if (!ocupado() && (r.cambio || (!ui.ej && (ui.tab === 'hoy' || ui.tab === 'ajustes')))) render(true);
       if (manual) toast('Copia en Drive actualizada');
       return;
     }
@@ -475,11 +565,11 @@
     const s = st();
     if (!s.profile || !D.configurado() || !navigator.onLine) return;
     if (D.listo()) { if (s.sync.pendiente || !s.sync.ultima) sincronizar(false); }
-    else if (D.puedeRenovarSolo() && hoja.hidden && !ui.enc && !ui.plan) D.entrar(true, 'sync');
+    else if (D.puedeRenovarSolo() && !ocupado() && !ui.ej) D.entrar(true, 'sync');
   }
   async function alVolverDeGoogle(v) {
     if (!v.ok) {
-      if (/interaction_required|login_required|consent_required|account_selection_required/.test(v.error || '')) { st().sync.conectado = false; S.guardar(); render(); toast('Vuelve a conectar tu cuenta de Google en Ajustes'); }
+      if (/interaction_required|login_required|consent_required|account_selection_required/.test(v.error || '')) { st().sync.conectado = false; S.guardar(); render(true); toast('Vuelve a conectar tu cuenta de Google en Ajustes'); }
       else if (v.error === 'access_denied') toast('No se dio permiso para usar Google Drive');
       else toast('No se pudo conectar con Google');
       return;
@@ -493,29 +583,48 @@
       } catch (e) { toast('No se pudo leer Google Drive'); }
       return;
     }
-    render(); sincronizar(true);
+    render(true); sincronizar(true);
   }
 
   // ---------- Acciones ----------
   const acciones = {
-    tab(el) { ui.tab = el.dataset.v; ui.dia = null; ui.verDia = null; render(); scrollTo(0, 0); },
+    tab(el) { ui.tab = el.dataset.v; ui.dia = null; ui.verDia = null; ui.ej = null; render(); },
     cerrar() { cerrar(); },
     confirmar() { const f = ui.alConfirmar; cerrar(); if (f) f(); },
 
     encuesta() {
-      const p = st().profile;
-      ui.enc = { i: 0, r: p ? JSON.parse(JSON.stringify(p.encuesta)) : { nombre: '', dias: [], molestias: [], zonas: [] } };
-      cerrar(); render(); scrollTo(0, 0);
+      const p = st().profile, base = { nombre: '', dias: [], molestias: [], zonas: [] };
+      ui.enc = { i: 0, r: p ? Object.assign(base, JSON.parse(JSON.stringify(p.encuesta))) : base };
+      delete ui.enc.r.manual;
+      cerrar(); render();
     },
-    recuperar() { if (!D.entrar(false, 'recuperar')) toast('Primero hay que configurar Google Drive (ver LEEME.md)'); },
+    manual() {
+      abrir(cabHoja('Arma tu rutina', 'Empiezas con la semana vacía y agregas lo que quieras') +
+        '<label class="campo" style="margin-top:0"><span>¿Cómo te llamas?</span><input id="man-nombre" maxlength="30" autocomplete="given-name" placeholder="Tu nombre"></label>' +
+        '<div style="margin-top:18px"><button class="btn primario" data-a="manual-ok">Crear mi semana</button></div>');
+    },
+    'manual-ok'() {
+      const nombre = $('#man-nombre').value.trim();
+      if (!nombre) { toast('Escribe tu nombre'); return; }
+      const s = st();
+      s.profile = { nombre, encuesta: { nombre, objetivo: 'musculo', nivel: 'intermedio', dias: [], minutos: 60, equipo: 'completo', molestias: [], zonas: [], manual: true }, plan: { titulo: 'Rutina propia', minutos: 60, manual: true }, updatedAt: Date.now() };
+      s.routine = rutinaVacia();
+      cerrar(); ui.tab = 'rutina'; S.tocar('profile'); S.tocar('routine'); render(); toast('Toca un día y agrega tus ejercicios');
+    },
+    recuperar() { if (!D.entrar(false, 'recuperar')) toast('Google Drive todavía no está configurado'); },
     'rec-ok'(el) {
       const c = ui.perfiles[+el.dataset.v]; cerrar();
       D.recuperar(c).then(ok => { if (ok) { render(); toast('Datos recuperados'); } else toast('Esa carpeta no tiene datos'); }).catch(() => toast('No se pudo leer Google Drive'));
     },
-    'enc-atras'() { if (ui.enc.i === 0) { ui.enc = null; } else ui.enc.i--; render(); scrollTo(0, 0); },
+    'enc-atras'() {
+      let i = ui.enc.i - 1;
+      while (i >= 0 && !aplica(i)) i--;
+      if (i < 0) ui.enc = null; else ui.enc.i = i;
+      render();
+    },
     'enc-uno'(el) { const p = PREG[ui.enc.i]; ui.enc.r[p.k] = p.k === 'minutos' ? +el.dataset.v : el.dataset.v; encAvanza(); },
-    'enc-dia'(el) { const d = +el.dataset.v, l = ui.enc.r.dias, i = l.indexOf(d); if (i >= 0) l.splice(i, 1); else l.push(d); render(); },
-    'enc-varios'(el) { const l = ui.enc.r[PREG[ui.enc.i].k], v = el.dataset.v, i = l.indexOf(v); if (i >= 0) l.splice(i, 1); else l.push(v); render(); },
+    'enc-dia'(el) { const d = +el.dataset.v, l = ui.enc.r.dias, i = l.indexOf(d); if (i >= 0) l.splice(i, 1); else l.push(d); render(true); },
+    'enc-varios'(el) { const l = ui.enc.r[PREG[ui.enc.i].k], v = el.dataset.v, i = l.indexOf(v); if (i >= 0) l.splice(i, 1); else l.push(v); render(true); },
     'enc-sig'() {
       const p = PREG[ui.enc.i], r = ui.enc.r;
       if (p.tipo === 'texto') { const v = $('#enc-texto').value.trim(); if (!v) { toast('Escribe tu nombre'); return; } r[p.k] = v; }
@@ -524,61 +633,104 @@
       encAvanza();
     },
     'plan-atras'() { ui.enc = { i: PREG.length - 1, r: ui.plan.r }; ui.plan = null; render(); },
-    'plan-sel'(el) { ui.plan.sel = +el.dataset.v; render(); },
+    'plan-sel'(el) { ui.plan.sel = +el.dataset.v; render(true); },
     'plan-crear'() {
       const p = ui.plan, op = p.ops[p.sel], s = st();
       const crear = () => {
         if (s.profile && s.profile.nombre !== p.r.nombre) { s.sync.carpeta = null; s.sync.archivo = null; }
         s.profile = { nombre: p.r.nombre, encuesta: p.r, plan: { id: op.id, titulo: op.titulo, minutos: op.minutos, pct: op.pct, dias: op.dias }, updatedAt: Date.now() };
-        s.routine = Gen.construir(p.r, op);
-        ui.plan = null; ui.tab = 'hoy'; ui.verDia = null;
-        S.tocar('profile'); S.tocar('routine'); render(); scrollTo(0, 0); toast('Rutina lista. Puedes cambiarla en la pestaña Rutina');
+        s.routine = Gen.construir(p.r, op); s.active = null;
+        ui.plan = null; ui.tab = 'hoy'; ui.verDia = null; ui.ej = null;
+        S.tocar('profile'); S.tocar('routine'); render(); toast('Rutina lista. Cámbiala como quieras');
       };
-      if (s.routine) confirmar('¿Reemplazar tu rutina?', 'La rutina nueva sustituye a la actual. Tu calendario no se borra.', 'Reemplazar rutina', crear); else crear();
+      const tiene = s.routine && Object.keys(s.routine.dias).some(d => s.routine.dias[d].items.length);
+      if (tiene) confirmar('¿Reemplazar tu rutina?', 'La rutina nueva sustituye a la actual. Tu calendario no se borra.', 'Reemplazar rutina', crear); else crear();
     },
 
+    // Hoy y entrenamiento
     'hoy-dia'(el) { ui.verDia = +el.dataset.v; render(); },
-    'ver-ej'(el) { hojaEjercicio(el.dataset.id); },
-    'ent-empezar'(el) { empezar(+el.dataset.v); },
-    'ent-continuar'() { A.preparar(); A.pantalla(true); ui.entrenando = true; render(); scrollTo(0, 0); },
-    'ent-descartar'() { confirmar('¿Descartar el entrenamiento?', 'Se pierden las series que llevabas anotadas.', 'Descartar', () => { st().active = null; S.guardar(); render(); }, true); },
-    'ent-salir'() { ui.entrenando = false; A.pantalla(false); render(); },
-    'ent-serie'() { serieHecha(); },
-    'ent-ant'() { const a = st().active; if (a.i > 0) { a.i--; S.guardar(); render(); scrollTo(0, 0); } },
-    'ent-sig'() { const a = st().active; if (a.i < a.items.length - 1) { a.i++; S.guardar(); render(); scrollTo(0, 0); } },
-    'ent-otra'() { const a = st().active; a.items[a.i].sets.push({ kg: '', reps: '', ok: false }); S.guardar(); render(); },
-    'ent-terminar'() { confirmar('¿Terminar el entrenamiento?', 'Se guardan las series que ya hiciste.', 'Guardar y terminar', terminar); },
-    'ent-fin'() { terminar(); },
-    'd-saltar'() { finDescanso(false); },
-    'd-ajuste'(el) {
-      const a = st().active; if (!a || !a.finDescanso) return;
-      a.finDescanso += (+el.dataset.v) * 1000;
-      const queda = (a.finDescanso - Date.now()) / 1000;
-      if (queda <= 0) { finDescanso(true); return; }
-      a.totalDescanso = Math.max(a.totalDescanso, queda); S.guardar(); A.programar(queda, textoSigue()); tick();
+    'hoy-editar'(el) { ui.tab = 'rutina'; ui.dia = +el.dataset.v; render(); },
+    'ent-empezar'(el) {
+      const d = +el.dataset.v; sesion(true, d);
+      if (!ui.ej) ui.ej = { dia: d, i: 0, editar: false };
+      render(true);
+    },
+    'ent-terminar'() { confirmar('¿Terminar el entrenamiento?', 'Se guardan en el calendario las series que marcaste.', 'Guardar y terminar', terminar); },
+
+    // Pantalla de un ejercicio
+    'ej-abrir'(el) { ui.ej = { dia: ui.verDia || S.diaSemana(), i: +el.dataset.v, editar: false }; render(); },
+    'ej-abrir-ed'(el) { ui.ej = { dia: ui.dia, i: +el.dataset.v, editar: true, salir: true }; ui.ej.copia = copiaItem(); render(); },
+    'ej-volver'() { ui.ej = null; render(); },
+    'ej-mover'(el) { const n = st().routine.dias[ui.ej.dia].items.length, i = ui.ej.i + (+el.dataset.v); if (i >= 0 && i < n) { ui.ej.i = i; ui.ej.rueda = false; render(); } },
+    'ej-menu'() {
+      const m = document.createElement('div');
+      m.id = 'menu'; m.innerHTML = '<div class="menu" role="menu">' +
+        '<button role="menuitem" data-a="ej-modo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-6"/><path d="M17.5 3.5l3 3L12 15l-4 1 1-4z"/></svg>Editar</button>' +
+        '<button role="menuitem" data-a="menu-cambiar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7H4M8 3L4 7l4 4M4 17h16M16 13l4 4-4 4"/></svg>Reemplazar ejercicio</button></div>';
+      document.body.appendChild(m);
+    },
+    'menu-cambiar'() { hojaPick('cambiar'); },
+    'ej-modo'() { ui.ej.editar = true; ui.ej.rueda = false; ui.ej.copia = copiaItem(); render(); },
+    'ej-guardar-ed'() { S.tocar('routine'); finEdicion(); toast('Cambios guardados'); },
+    'ej-cancelar'() {
+      // Deja el ejercicio como estaba antes de tocar "Editar".
+      const c = JSON.parse(ui.ej.copia), d = st().routine.dias[ui.ej.dia], a = st().active;
+      d.items[ui.ej.i] = c.it;
+      if (a) { if (c.h) a.hechos[c.it.uid] = c.h; else delete a.hechos[c.it.uid]; }
+      S.tocar('routine'); finEdicion();
+    },
+    'ej-info'() { hojaEjercicio(itemActual().ex); },
+    'ej-progreso'() { hojaProgreso(itemActual().ex); },
+    'se-circ'(el) {
+      const it = itemActual(), i = +el.dataset.v;
+      if (ui.ej.editar) { it.series[i].tipo = it.series[i].tipo === 'c' ? 'n' : 'c'; S.tocar('routine'); render(true); return; }
+      const a = sesion(true, ui.ej.dia), h = a.hechos[it.uid] || (a.hechos[it.uid] = []);
+      h[i] = !h[i]; S.guardar(); render(true);
+      if (h[i] && st().settings.autoDescanso && it.rest > 0) iniciarTimer(it.rest, 'Sigue: ' + S.ejercicio(it.ex).nombre);
+    },
+    'se-agregar'() {
+      const it = itemActual(), u = it.series[it.series.length - 1];
+      it.series.push(u ? { reps: u.reps, peso: u.peso, tipo: 'n' } : { reps: '10', peso: '', tipo: 'n' });
+      S.tocar('routine'); render(true);
+    },
+    'se-quitar'(el) {
+      const it = itemActual(), i = +el.dataset.v, a = st().active;
+      it.series.splice(i, 1);
+      if (a && a.hechos[it.uid]) a.hechos[it.uid].splice(i, 1);
+      S.tocar('routine'); render(true);
+    },
+    't-toggle'() {
+      const it = itemActual();
+      if (corriendo()) { pararTimer(true); return; }
+      if (!it.rest) { toast('Toca el tiempo para ponerle descanso'); return; }
+      A.preparar(); A.permiso();
+      iniciarTimer(it.rest, 'Sigue: ' + S.ejercicio(it.ex).nombre);
+    },
+    't-rueda'() { ui.ej.rueda = !ui.ej.rueda; render(true); },
+    'rueda-ir'(el) { const c = el.parentNode; c.scrollTo({ top: [].indexOf.call(c.querySelectorAll('button'), el) * PASO_R, behavior: 'smooth' }); },
+    'ej-unidad'() { const it = itemActual(); it.u = uni(it) === 'lb' ? 'kg' : 'lb'; S.tocar('routine'); render(true); toast('Este ejercicio ahora va en ' + (it.u === 'kg' ? 'kilos' : 'libras')); },
+    'it-cambiar'() { hojaPick('cambiar'); },
+    'it-quitar'() {
+      const d = st().routine.dias[ui.ej.dia];
+      confirmar('¿Quitar este ejercicio?', 'Se quita de ' + DIAS[ui.ej.dia - 1].toLowerCase() + ' con todas sus series.', 'Quitar ejercicio', () => {
+        d.items.splice(ui.ej.i, 1); if (!d.items.length) d.nombre = 'Descanso';
+        ui.ej = null; S.tocar('routine'); render();
+      }, true);
     },
 
-    'rut-dia'(el) { ui.dia = +el.dataset.v; render(); scrollTo(0, 0); },
+    // Rutina
+    'rut-dia'(el) { ui.dia = +el.dataset.v; render(); },
     'rut-volver'() { ui.dia = null; render(); },
     'rut-descanso'() { confirmar('¿Dejar ' + DIAS[ui.dia - 1].toLowerCase() + ' como descanso?', 'Se quitan los ejercicios de este día.', 'Dejar como descanso', () => { st().routine.dias[ui.dia] = { nombre: 'Descanso', items: [] }; S.tocar('routine'); render(); }, true); },
     'rut-cambiar'() {
       abrir(cabHoja('Intercambiar ' + DIAS[ui.dia - 1].toLowerCase() + ' con') + '<div class="lista">' + DIAS.map((n, i) => i + 1 === ui.dia ? '' : '<button class="fila" data-a="rut-cambio" data-v="' + (i + 1) + '"><span class="cuerpo"><b>' + n + '</b><span>' + esc(st().routine.dias[i + 1].items.length ? st().routine.dias[i + 1].nombre : 'Descanso') + '</span></span></button>').join('') + '</div>');
     },
     'rut-cambio'(el) { const d = st().routine.dias, o = +el.dataset.v, t = d[ui.dia]; d[ui.dia] = d[o]; d[o] = t; S.tocar('routine'); ui.dia = o; cerrar(); render(); toast('Días intercambiados'); },
-    'it-mover'(el) { const l = st().routine.dias[ui.dia].items, i = l.findIndex(x => x.uid === el.dataset.u), j = i + (+el.dataset.v); if (i < 0 || j < 0 || j >= l.length) return; const t = l[i]; l[i] = l[j]; l[j] = t; S.tocar('routine'); render(); },
-    'it-editar'(el) { hojaItem(el.dataset.u); },
-    'it-paso'(el) {
-      const k = el.dataset.k, v = +el.dataset.v;
-      if (k === 'sets') { ui.item.sets = Math.max(1, Math.min(10, ui.item.sets + v)); $('#o-sets').textContent = ui.item.sets; }
-      else { ui.item.rest = Math.max(0, Math.min(600, ui.item.rest + v)); $('#o-rest').textContent = reloj(ui.item.rest); }
-    },
-    'it-guardar'() { const it = itemActual(); it.sets = ui.item.sets; it.rest = ui.item.rest; it.reps = $('#it-reps').value.trim() || it.reps; it.nota = $('#it-nota').value.trim(); S.tocar('routine'); cerrar(); render(); },
-    'it-quitar'() { const d = st().routine.dias[ui.dia]; d.items = d.items.filter(x => x.uid !== ui.item.uid); if (!d.items.length) d.nombre = 'Descanso'; S.tocar('routine'); cerrar(); render(); },
-    'it-cambiar'() { hojaPick('cambiar', ui.item.uid); },
+    'it-mover'(el) { const l = st().routine.dias[ui.dia].items, i = +el.dataset.v, j = i + (+el.dataset.d); if (j < 0 || j >= l.length) return; const t = l[i]; l[i] = l[j]; l[j] = t; S.tocar('routine'); render(true); },
     'it-agregar'() { hojaPick('agregar'); },
     'pick-g'(el) { ui.grupo = el.dataset.v; hoja.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.v === ui.grupo))); $('#pick-lista').innerHTML = listaPick(); },
     'pick-ok'(el) { ponerEjercicio(el.dataset.id); },
-    'ej-nuevo'() { ui.pickPend = ui.pick; hojaEditarEj(null); },
+    'ej-nuevo'() { hojaEditarEj(null); },
     'ej-editar'(el) { hojaEditarEj(el.dataset.id); },
     async 'ej-guardar'(el) {
       const id = el.dataset.id, nombre = $('#ej-nombre').value.trim(), c = st().custom;
@@ -590,29 +742,32 @@
       else if (!G.EX[id]) { const e = c.items.find(x => x.id === id); Object.assign(e, { nombre, grupo: $('#ej-grupo').value, tips }); if (foto) e.foto = foto; }
       else { c.cambios[id] = Object.assign({}, c.cambios[id] || {}, { nombre, tips }); if (foto) c.cambios[id].foto = foto; }
       S.tocar('custom');
-      if (nuevoId && ui.pick && ui.dia) { ponerEjercicio(nuevoId); toast('Ejercicio creado y agregado'); return; }
-      cerrar(); render(); toast('Ejercicio guardado');
+      if (nuevoId && ui.pick && (ui.dia || ui.ej)) { ponerEjercicio(nuevoId); toast('Ejercicio creado y agregado'); return; }
+      cerrar(); render(true); toast('Ejercicio guardado');
     },
     'ej-borrar'(el) {
       const id = el.dataset.id;
       confirmar('¿Borrar este ejercicio?', 'También se quita de los días donde lo tengas.', 'Borrar ejercicio', () => {
         const s = st(); s.custom.items = s.custom.items.filter(x => x.id !== id);
         Object.keys(s.routine.dias).forEach(d => { const dia = s.routine.dias[d]; dia.items = dia.items.filter(x => x.ex !== id); if (!dia.items.length) dia.nombre = 'Descanso'; });
-        S.tocar('custom'); S.tocar('routine'); render();
+        ui.ej = null; S.tocar('custom'); S.tocar('routine'); render();
       }, true);
     },
-    'ej-restaurar'(el) { delete st().custom.cambios[el.dataset.id]; S.tocar('custom'); cerrar(); render(); toast('Ejercicio restaurado'); },
+    'ej-restaurar'(el) { delete st().custom.cambios[el.dataset.id]; S.tocar('custom'); cerrar(); render(true); toast('Ejercicio restaurado'); },
 
+    // Calendario
     'cal-mes'(el) { const h = new Date(), m = ui.mes || { y: h.getFullYear(), m: h.getMonth() }, d = new Date(m.y, m.m + (+el.dataset.v), 1); ui.mes = { y: d.getFullYear(), m: d.getMonth() }; render(); },
     'cal-dia'(el) { hojaFecha(el.dataset.v); },
-    'cal-borrar'(el) { const f = el.dataset.v; confirmar('¿Borrar este registro?', 'Se quita del calendario.', 'Borrar registro', () => { st().logs[f] = { fecha: f, borrado: true, updatedAt: Date.now() }; S.tocar('logs'); render(); }, true); },
+    'cal-borrar'(el) { const f = el.dataset.v; confirmar('¿Borrar este registro?', 'Se quita del calendario.', 'Borrar registro', () => { st().logs[f] = { fecha: f, borrado: true, updatedAt: Date.now() }; S.tocar('logs'); render(true); }, true); },
     'cal-marcar'(el) {
       const f = el.dataset.v, dia = st().routine.dias[S.diaSemana(new Date(f + 'T12:00:00'))];
-      st().logs[f] = { fecha: f, nombre: dia.nombre, min: 0, updatedAt: Date.now(), items: dia.items.map(it => ({ ex: it.ex, nombre: S.ejercicio(it.ex).nombre, sets: Array.from({ length: it.sets }, () => ({ kg: '', reps: it.reps })) })) };
-      S.tocar('logs'); cerrar(); render(); toast('Día marcado');
+      st().logs[f] = { fecha: f, nombre: dia.nombre, u: unidad(), min: 0, updatedAt: Date.now(), items: dia.items.map(it => ({ ex: it.ex, nombre: S.ejercicio(it.ex).nombre, u: uni(it), sets: it.series.map(x => ({ kg: x.peso || '', reps: x.reps || '' })) })) };
+      S.tocar('logs'); cerrar(); render(true); toast('Día marcado');
     },
 
+    // Ajustes
     'aj-encuesta'() { acciones.encuesta(); },
+    'aj-unidad'(el) { st().settings.unidad = el.dataset.v; S.tocar('settings'); render(true); },
     'aj-probar'() { const s = st().settings; if (!s.sonido) { toast('Activa primero el pitido'); return; } if (!A.ahora()) toast('Este navegador no puede reproducir el pitido'); },
     'aj-fotos'() { bajarFotos(true); },
     'aj-exportar'() {
@@ -620,35 +775,71 @@
       a.href = URL.createObjectURL(new Blob([JSON.stringify(S.paquete(), null, 2)], { type: 'application/json' }));
       a.download = 'gym-' + S.hoy() + '.json'; document.body.appendChild(a); a.click(); a.remove();
     },
-    'aj-borrar'() { confirmar('¿Borrar todo de este teléfono?', 'Se borran tu rutina y tu calendario de este teléfono. Lo que ya esté en Google Drive se queda ahí.', 'Borrar todo', () => { D.salir(); S.borrarTodo(); ui.tab = 'hoy'; render(); }, true); },
+    'aj-borrar'() { confirmar('¿Borrar todo de este teléfono?', 'Se borran tu rutina y tu calendario de este teléfono. Lo que ya esté en Google Drive se queda ahí.', 'Borrar todo', () => { pararTimer(true); D.salir(); S.borrarTodo(); ui.tab = 'hoy'; ui.ej = null; render(); }, true); },
     'dr-conectar'() { D.entrar(false, 'sync'); },
     'dr-sync'() { sincronizar(true); },
-    'dr-salir'() { confirmar('¿Desconectar Google Drive?', 'Tus datos siguen en este teléfono y la copia de Drive no se borra.', 'Desconectar', () => { D.salir(); render(); }); }
+    'dr-salir'() { confirmar('¿Desconectar Google Drive?', 'Tus datos siguen en este teléfono y la copia de Drive no se borra.', 'Desconectar', () => { D.salir(); render(true); }); }
   };
 
   document.addEventListener('click', ev => {
+    const menu = $('#menu'); if (menu) menu.remove();
     if (ev.target === hoja) { cerrar(); return; }
     const el = ev.target.closest('[data-a]');
     if (!el || el.disabled) return;
     const f = acciones[el.dataset.a];
     if (f) f(el, ev);
   });
+  // Lo que se escribe se guarda al momento, sin redibujar (para no cerrar el teclado).
   document.addEventListener('input', ev => {
-    const c = ev.target.dataset && ev.target.dataset.c;
+    const el = ev.target, c = el.dataset && el.dataset.c, it = itemActual();
     if (c === 'pick-q') $('#pick-lista').innerHTML = listaPick();
+    else if (c === 'se-reps' && it) { it.series[+el.dataset.v].reps = el.value.trim(); S.guardar(); }
+    else if (c === 'se-peso' && it) { it.series[+el.dataset.v].peso = el.value.trim().replace(',', '.'); S.guardar(); }
+    else if (c === 'ej-nota' && it) { it.nota = el.value; S.guardar(); }
   });
   document.addEventListener('change', ev => {
     const el = ev.target, c = el.dataset && el.dataset.c;
     if (c === 'aj-toggle') { st().settings[el.dataset.k] = el.checked; S.tocar('settings'); }
     else if (c === 'dia-nombre') { const d = st().routine.dias[ui.dia]; if (d.items.length) { d.nombre = el.value.trim() || 'Entrenamiento'; S.tocar('routine'); } }
+    else if (c === 'se-reps' || c === 'se-peso' || c === 'ej-nota') S.tocar('routine');
   });
+  // Al tocar un número se selecciona completo, para escribir encima sin tener que borrar.
+  let recien = null;
+  document.addEventListener('focusin', ev => {
+    const el = ev.target;
+    if (!el.classList || !el.classList.contains('num')) return;
+    recien = el; setTimeout(() => { try { el.select(); } catch (e) { /* no importa */ } }, 0);
+  });
+  document.addEventListener('click', ev => { if (ev.target === recien) { recien = null; try { ev.target.select(); } catch (e) { /* no importa */ } } });
   document.addEventListener('keydown', ev => {
     if (ev.key === 'Escape' && !hoja.hidden) cerrar();
     if (ev.key === 'Enter' && ev.target.id === 'enc-texto') acciones['enc-sig']();
+    if (ev.key === 'Enter' && ev.target.id === 'man-nombre') acciones['manual-ok']();
+    if (ev.key === 'Enter' && ev.target.classList && ev.target.classList.contains('num')) ev.target.blur();
   });
+  // Cuando sale el teclado, la app se encoge a lo que queda visible (en vez de que toda la ventana se mueva)
+  // y se esconden el pie y las pestañas para dejar espacio.
+  if (window.visualViewport) {
+    const vv = window.visualViewport;
+    const ajustar = () => {
+      const teclado = vv.height < window.innerHeight - 120;
+      document.documentElement.style.setProperty('--alto', Math.round(vv.height) + 'px');
+      app.classList.toggle('teclado', teclado);
+      const el = document.activeElement;
+      if (teclado && el && /INPUT|TEXTAREA/.test(el.tagName) && vista.contains(el)) el.scrollIntoView({ block: 'center' });
+      window.scrollTo(0, 0);
+    };
+    vv.addEventListener('resize', ajustar);
+    vv.addEventListener('scroll', () => window.scrollTo(0, 0));
+  }
+  document.addEventListener('focusout', () => setTimeout(() => window.scrollTo(0, 0), 60));
+  // Sin zoom: ni con doble toque ni pellizcando (como una app normal).
+  document.addEventListener('gesturestart', ev => ev.preventDefault());
+  document.addEventListener('dblclick', ev => ev.preventDefault());
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
-    if (st().active && ui.entrenando) { A.pantalla(true); tick(); } else automatico();
+    if (st().active) A.pantalla(true);
+    if (corriendo()) tick(); else automatico();
   });
   window.addEventListener('online', automatico);
 
@@ -659,17 +850,16 @@
   // ---------- Arranque ----------
   S.cargar();
   const vuelta = D.alVolver();
-  // El modo sin internet solo se activa en la dirección publicada (https), no al probar en la computadora,
-  // para que al editar archivos en VS Code siempre veas la versión nueva.
-  const esLocal = /^(localhost|127\.|\[::1\])/.test(location.hostname) && location.search.indexOf('sw=1') < 0;
   D.alVolverNativo = alVolverDeGoogle;
+  // El modo sin internet solo se activa en la dirección publicada (https), no al probar en la computadora,
+  // para que al editar archivos en VS Code siempre veas la versión nueva. La app nativa no lo necesita.
+  const esLocal = /^(localhost|127\.|\[::1\])/.test(location.hostname) && location.search.indexOf('sw=1') < 0;
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && !esLocal && !D.nativo) {
     navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(() => {
       setTimeout(() => { if (!localStorage.getItem('gym.fotos')) bajarFotos(false); }, 2500);
     }).catch(e => console.warn('Sin modo offline:', e));
   }
-  if (st().active) ui.entrenando = true;
   render();
-  if (st().active && st().active.finDescanso) { if (st().active.finDescanso > Date.now()) mostrarDescanso(); else { st().active.finDescanso = 0; S.guardar(); } }
+  if (corriendo()) { if (st().timer.fin > Date.now()) tickT = setInterval(tick, 200); else { st().timer.fin = 0; S.guardar(); } }
   if (vuelta) alVolverDeGoogle(vuelta); else automatico();
 })();

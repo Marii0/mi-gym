@@ -11,8 +11,9 @@
       routine: null,                                   // { updatedAt, dias: { 1..7: { nombre, items[] } } }  1 = lunes
       custom: { updatedAt: 0, items: [], cambios: {} },// ejercicios propios y cambios a los del catálogo
       logs: {},                                        // 'AAAA-MM-DD': { fecha, nombre, min, items[], updatedAt, borrado? }
-      settings: { updatedAt: 0, sonido: true, enSilencio: false, cuenta: true, pantalla: true },
-      active: null,                                    // entrenamiento en curso
+      settings: { updatedAt: 0, sonido: true, enSilencio: false, cuenta: true, pantalla: true, unidad: 'lb', autoDescanso: true },
+      active: null,                                    // entrenamiento en curso: { fecha, dia, nombre, inicio, hechos: { uid: [true, false...] } }
+      timer: { fin: 0, total: 0 },                     // descanso en marcha
       sync: { pendiente: false, ultima: 0, carpeta: null, archivo: null, correo: null, conectado: false }
     };
   }
@@ -29,6 +30,9 @@
         state.settings = Object.assign(vacio().settings, d.settings || {});
         state.custom = Object.assign(vacio().custom, d.custom || {});
         state.sync = Object.assign(vacio().sync, d.sync || {});
+        state.timer = Object.assign(vacio().timer, d.timer || {});
+        if (state.active && !state.active.hechos) state.active = null;   // formato anterior
+        G.Gen.normalizar(state.routine);
       }
     } catch (e) { console.warn('No se pudieron leer los datos guardados', e); }
     return state;
@@ -71,6 +75,7 @@
       const l = state.logs[f], r = remoto.logs[f];
       if (!l || (r.updatedAt || 0) > (l.updatedAt || 0)) { state.logs[f] = r; cambio = true; }
     });
+    G.Gen.normalizar(state.routine);
     if (cambio) guardar();
     return cambio;
   }
@@ -96,8 +101,9 @@
   }
   function fotos(e) {
     if (e.foto) return [e.foto];
-    if (e.img) return ['img/ex/' + e.img + '-0.jpg', 'img/ex/' + e.img + '-1.jpg'];
-    return [];
+    const d = G.DIB[e.id], r = [];
+    if (d) for (let i = 0; i < d[1]; i++) r.push('img/dib/' + d[0] + '-' + i + '.png');
+    return r;
   }
 
   // Última vez que se hizo un ejercicio (para sugerir peso y repeticiones).
@@ -109,10 +115,17 @@
     }
     return null;
   }
+  // Todas las veces que se hizo un ejercicio, de la más reciente a la más antigua.
+  function historial(exId) {
+    return Object.keys(state.logs).filter(f => !state.logs[f].borrado).sort().reverse().map(f => {
+      const it = (state.logs[f].items || []).find(x => x.ex === exId);
+      return it && it.sets && it.sets.length ? { fecha: f, sets: it.sets, u: it.u || state.logs[f].u } : null;
+    }).filter(Boolean);
+  }
 
   G.Store = {
     get state() { return state; },
     cargar, guardar, tocar, alCambiar, paquete, combinar, borrarTodo,
-    hoy, fechaISO, diaSemana, ejercicio, todos, fotos, ultimo
+    hoy, fechaISO, diaSemana, ejercicio, todos, fotos, ultimo, historial
   };
 })();
