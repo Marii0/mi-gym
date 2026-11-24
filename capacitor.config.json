@@ -2,9 +2,10 @@
   "appId": "io.github.marii0.migym",
   "appName": "Mi Gym",
   "webDir": "www",
-  "backgroundColor": "#0F1B2D",
+  "backgroundColor": "#14161F",
   "ios": {
     "contentInset": "never",
-    "backgroundColor": "#0F1B2D"
+    "scrollEnabled": false,
+    "backgroundColor": "#14161F"
   }
 }

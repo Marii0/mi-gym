@@ -5,12 +5,14 @@ Guarda todo en el teléfono, funciona sin internet y, cuando hay conexión, sube
 
 ## Qué hace
 
-- Encuesta de 9 preguntas y rutina semanal armada según objetivo, nivel, días libres, tiempo, equipo y molestias.
+- Encuesta de 11 preguntas (se puede saltar) y rutina semanal armada según objetivo, nivel, días libres, tiempo, equipo y molestias.
 - Si el horario no alcanza para el plan ideal, propone opciones que se acercan lo más posible.
-- 96 ejercicios con dos fotos cada uno (inicio y final del movimiento) y tips.
-- Entrenamiento guiado: anotas peso y repeticiones, tocas "Terminé la serie" y arranca el descanso. Al terminar suena un pitido (bocina o audífonos) y sigue la siguiente serie o ejercicio.
+- 96 ejercicios con dibujo (inicio y final del movimiento) y tips.
+- Entrenamiento libre: cada ejercicio tiene su pantalla con sus series (repeticiones y peso por serie). Tocas el círculo de una serie para marcarla y arranca el descanso ahí mismo; puedes pararlo, iniciarlo a mano y hacer las series en el orden que quieras. Al terminar el descanso suena un pitido (bocina o audífonos).
+- Con las flechas de arriba pasas al ejercicio anterior o siguiente. En "Editar" agregas o quitas series, marcas series de calentamiento, cambias el descanso o reemplazas el ejercicio.
+- La encuesta se puede saltar para armar la rutina a mano, y pregunta si quieres cardio (al final de cada sesión, en días aparte o nada) y de qué tipo.
 - Calendario con los días entrenados.
-- Todo se puede cambiar: ejercicios, series, repeticiones, descansos, nombres, tips, fotos y días.
+- Todo se puede cambiar: ejercicios, series, repeticiones, descansos, nombres, tips, imágenes y días. El descanso se cambia tocando el tiempo (ruedita, máximo 5 minutos) y cada ejercicio puede ir en libras o kilos.
 - Una carpeta por persona en Drive: `GymApp/<nombre>/datos.json`.
 
 ## Dos formas de usarla
@@ -69,7 +71,7 @@ Si prefieren que las dos carpetas estén en el mismo Drive, entren los dos con l
 | `js/drive.js` | Inicio de sesión con Google y copia en Drive |
 | `js/audio.js` | Pitido y pantalla encendida |
 | `css/styles.css` | Colores y diseño |
-| `img/ex/` | Fotos de los ejercicios |
+| `img/dib/` | Dibujos de los ejercicios |
 | `native/`, `package.json`, `capacitor.config.json` | Lo necesario para armar la app nativa con Capacitor |
 | `.github/workflows/ios.yml` | Compilación de la app nativa en la nube |
 
@@ -82,5 +84,5 @@ Si prefieren que las dos carpetas estén en el mismo Drive, entren los dos con l
 
 ## Créditos
 
-Fotos de los ejercicios: [free-exercise-db](https://github.com/yuhonas/free-exercise-db), dominio público (Unlicense).
+Dibujos de los ejercicios: [Everkinetic](https://github.com/everkinetic/data), licencia CC BY-SA 4.0, adaptados a fondo oscuro (los dibujos adaptados se comparten bajo la misma licencia). Los de cardio son propios de esta app.
 Tipografía: Barlow Condensed (SIL Open Font License).
