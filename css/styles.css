@@ -171,15 +171,16 @@ span.mini-foto { border-radius: 14px; background: var(--panel2); }
 .editando .st-cab, .editando .st-fila { grid-template-columns: 34px 54px 1fr 1fr; }
 .editando .sin-peso .st-cab, .editando .sin-peso .st-fila { grid-template-columns: 34px 54px 1fr; }
 .editando .st-cab > span:first-child { grid-column: span 2; }
+.st-cab > * { min-width: 0; text-align: center; justify-self: stretch; }
 .st-cab { min-height: 40px; font-size: 16px; color: var(--tenue); text-align: center; }
 .st-uni { border: 0; background: none; padding: 6px 0; color: var(--tenue); cursor: pointer; }
 .st-uni b { color: var(--acento); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .st-fila { min-height: 56px; }
 .circ { width: 32px; height: 32px; justify-self: center; padding: 0; border: 1.5px solid var(--tenue); border-radius: 50%; background: none; font-size: 13px; font-weight: 600; color: var(--tenue); cursor: pointer; }
 .circ.cal { border-color: var(--ambar); color: var(--ambar); }
-.circ.ok { background: var(--acento); border-color: var(--acento); color: var(--sobre-acento); font-size: 15px; }
-.circ.cal.ok { background: var(--ambar); border-color: var(--ambar); color: #241A05; }
-.num { width: 100%; min-width: 0; height: 46px; padding: 0 4px; border: 0; border-radius: 12px; background: none; text-align: center; font-size: 28px; font-weight: 400; letter-spacing: 0; }
+.circ.ok { background: var(--acento); border-color: var(--acento); color: var(--sobre-acento); }
+.circ.cal.ok { background: var(--ambar); border-color: var(--ambar); color: #241A05; font-size: 13px; }
+.num { -webkit-appearance: none; appearance: none; display: block; box-sizing: border-box; width: 100%; min-width: 0; height: 46px; margin: 0; padding: 0; border: 0; border-radius: 12px; background: none; text-align: center; font-variant-numeric: tabular-nums; font-size: 28px; font-weight: 400; letter-spacing: 0; }
 .num:focus { outline: none; background: rgba(255, 255, 255, .06); }
 .num::placeholder { color: var(--tenue); opacity: .55; }
 .st-fila.hecha .num { color: var(--acento); }
@@ -228,13 +229,15 @@ span.mini-foto { border-radius: 14px; background: var(--panel2); }
 .dia.fuera { visibility: hidden; }
 .dia.futuro { color: var(--tenue); }
 .dia.es-hoy { box-shadow: inset 0 0 0 1.5px var(--tiza); }
-.dia.hecho { background: var(--acento); color: var(--sobre-acento); }
+.mes .dia { width: min(100%, 44px); justify-self: center; }
+.dia.hecho { background: rgba(181, 242, 61, .14); color: var(--acento); box-shadow: inset 0 0 0 1.5px rgba(181, 242, 61, .6); }
+.dia.hecho.es-hoy { box-shadow: inset 0 0 0 2px var(--acento); }
 .dia i { position: absolute; left: 50%; bottom: 5px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: transparent; }
 .dia.toca i { background: var(--tenue); opacity: .6; }
 .dia.hecho i { background: transparent; }
 .leyenda { display: flex; gap: 18px; margin-top: 14px; font-size: .8rem; color: var(--tenue); }
 .leyenda span { display: inline-flex; align-items: center; gap: 6px; }
-.leyenda i { width: 12px; height: 12px; border-radius: 50%; background: var(--acento); }
+.leyenda i { width: 12px; height: 12px; border-radius: 50%; background: rgba(181, 242, 61, .14); box-shadow: inset 0 0 0 1.5px rgba(181, 242, 61, .6); }
 .leyenda i.p { width: 6px; height: 6px; background: var(--tenue); opacity: .6; }
 
 /* ---------- Ajustes ---------- */
