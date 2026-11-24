@@ -306,7 +306,7 @@
       const ok = hecho(it.uid, i), texto = !/^\d*$/.test(se.reps || '');
       return '<div class="st-fila' + (ok && !ed ? ' hecha' : '') + (se.tipo === 'c' ? ' cal' : '') + '">' +
         (ed ? '<button class="menos" data-a="se-quitar" data-v="' + i + '" aria-label="Quitar serie">−</button>' : '') +
-        '<button class="circ' + (se.tipo === 'c' ? ' cal' : '') + (ok && !ed ? ' ok' : '') + '" data-a="se-circ" data-v="' + i + '" aria-label="' + (ed ? 'Cambiar tipo de serie' : 'Marcar serie') + '">' + (ok && !ed ? '✓' : se.tipo === 'c' ? 'C' : numeroSerie(it.series, i)) + '</button>' +
+        '<button class="circ' + (se.tipo === 'c' ? ' cal' : '') + (ok && !ed ? ' ok' : '') + '" data-a="se-circ" data-v="' + i + '" aria-label="' + (ed ? 'Cambiar tipo de serie' : 'Marcar serie') + '">' + (se.tipo === 'c' ? 'C' : numeroSerie(it.series, i)) + '</button>' +
         '<input class="num" data-c="se-reps" data-v="' + i + '" value="' + esc(se.reps) + '" ' + (texto ? '' : 'inputmode="numeric" pattern="[0-9]*"') + ' aria-label="Repeticiones">' +
         (cardio ? '' : '<input class="num" data-c="se-peso" data-v="' + i + '" value="' + esc(se.peso) + '" inputmode="decimal" placeholder="–" aria-label="Peso">') + '</div>';
     }).join('');
@@ -553,12 +553,12 @@
     let h = cabHoja(titulo.charAt(0).toUpperCase() + titulo.slice(1), r ? r.nombre + (r.min ? ', ' + r.min + ' min' : '') : '');
     if (r) {
       h += '<div class="lista">' + (r.items || []).map(it => '<div class="fila"><span class="cuerpo"><b>' + esc(it.nombre || S.ejercicio(it.ex).nombre) + '</b><span>' + it.sets.map(x => esc((x.kg ? x.kg + ' ' + (it.u || r.u || 'kg') + ' × ' : '') + (x.reps || '✓'))).join(', ') + '</span></span></div>').join('') + '</div>' +
-        '<div style="margin-top:18px"><button class="btn peligro" data-a="cal-borrar" data-v="' + f + '">Borrar este registro</button></div>';
+        '<div style="margin-top:18px"><button class="btn peligro" data-a="cal-borrar" data-v="' + f + '">Marcar como no entrenado</button></div>';
     } else if (f > S.hoy()) {
       h += '<p class="tenue">' + (dia.items.length ? 'Ese día toca: ' + esc(dia.nombre) + '.' : 'Ese día toca descanso.') + '</p>';
     } else {
-      h += '<p class="tenue">Sin registro este día.' + (dia.items.length ? ' Tocaba: ' + esc(dia.nombre) + '.' : '') + '</p>' +
-        (dia.items.length ? '<div style="margin-top:18px"><button class="btn primario" data-a="cal-marcar" data-v="' + f + '">Marcar como entrenado</button></div>' : '');
+      h += '<p class="tenue">Sin registro este día.' + (dia.items.length ? ' Tocaba: ' + esc(dia.nombre) + '.' : ' Tocaba descanso.') + '</p>' +
+        '<div style="margin-top:18px"><button class="btn primario" data-a="cal-marcar" data-v="' + f + '">Marcar como entrenado</button></div>';
     }
     abrir(h);
   }
@@ -862,10 +862,10 @@
     // Calendario
     'cal-mes'(el) { const h = new Date(), m = ui.mes || { y: h.getFullYear(), m: h.getMonth() }, d = new Date(m.y, m.m + (+el.dataset.v), 1); ui.mes = { y: d.getFullYear(), m: d.getMonth() }; render(); },
     'cal-dia'(el) { hojaFecha(el.dataset.v); },
-    'cal-borrar'(el) { const f = el.dataset.v; confirmar('¿Borrar este registro?', 'Se quita del calendario.', 'Borrar registro', () => { st().logs[f] = { fecha: f, borrado: true, updatedAt: Date.now() }; S.tocar('logs'); render(true); }, true); },
+    'cal-borrar'(el) { const f = el.dataset.v; confirmar('¿Marcar como no entrenado?', 'Se quita la marca de ese día y las series que registraste ahí.', 'Quitar la marca', () => { st().logs[f] = { fecha: f, borrado: true, updatedAt: Date.now() }; S.tocar('logs'); render(true); toast('Día desmarcado'); }, true); },
     'cal-marcar'(el) {
       const f = el.dataset.v, dia = st().routine.dias[S.diaSemana(new Date(f + 'T12:00:00'))];
-      st().logs[f] = { fecha: f, nombre: dia.nombre, u: unidad(), min: 0, updatedAt: Date.now(), items: dia.items.map(it => ({ ex: it.ex, nombre: S.ejercicio(it.ex).nombre, u: uni(it), sets: it.series.map(x => ({ kg: x.peso || '', reps: x.reps || '' })) })) };
+      st().logs[f] = { fecha: f, nombre: dia.items.length ? dia.nombre : 'Entrenamiento', u: unidad(), min: 0, updatedAt: Date.now(), items: dia.items.map(it => ({ ex: it.ex, nombre: S.ejercicio(it.ex).nombre, u: uni(it), sets: it.series.map(x => ({ kg: x.peso || '', reps: x.reps || '' })) })) };
       S.tocar('logs'); cerrar(); render(true); toast('Día marcado');
     },
 
