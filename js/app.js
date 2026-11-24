@@ -54,7 +54,7 @@
     clearTimeout(toastT); toastT = setTimeout(() => { toastEl.hidden = true; }, 3200);
   }
   function abrir(html) { hoja.innerHTML = '<div class="hoja" role="dialog" aria-modal="true">' + html + '</div>'; hoja.hidden = false; }
-  function cerrar() { hoja.hidden = true; hoja.innerHTML = ''; ui.pick = null; ui.alConfirmar = null; }
+  function cerrar() { hoja.hidden = true; hoja.innerHTML = ''; ui.pick = null; ui.alConfirmar = null; if (ui.ia && !ui.ia.cargando) ui.ia = null; }
   function cabHoja(titulo, sub) {
     return '<div class="hoja-cab"><div><h2>' + esc(titulo) + '</h2>' + (sub ? '<p class="tenue chico">' + esc(sub) + '</p>' : '') + '</div><button class="cerrar" data-a="cerrar" aria-label="Cerrar">✕</button></div>';
   }
@@ -370,8 +370,8 @@
   function vRutina() {
     const dias = st().routine.dias;
     return {
-      cab: '<h1>Tu semana</h1><p class="tenue chico">Toca un día para armarlo o cambiarlo.</p>',
-      html: '<div class="lista">' + DIAS.map((n, i) => { const d = dias[i + 1]; return '<button class="fila" data-a="rut-dia" data-v="' + (i + 1) + '"><span class="cuerpo"><b>' + n + '</b><span>' + esc(d.items.length ? d.nombre : 'Descanso') + '</span></span><span class="der">' + (d.items.length ? d.items.length + ' ejercicios, ' + Gen.minutosDia(d.items) + ' min' : '') + '</span></button>'; }).join('') + '</div>',
+      cab: '<div class="cab-fila"><div><h1>Tu semana</h1><p class="tenue chico">Toca un día para armarlo o cambiarlo.</p></div>' + botonIA('semana') + '</div>',
+      html: '<div class="lista">' + DIAS.map((n, i) => { const d = dias[i + 1]; return '<button class="fila" data-a="rut-dia" data-v="' + (i + 1) + '"><span class="cuerpo"><b>' + n + '</b><span>' + esc(d.items.length ? d.nombre : 'Descanso') + '</span></span><span class="der">' + (d.items.length ? d.items.length + (d.items.length === 1 ? ' ejercicio, ' : ' ejercicios, ') + Gen.minutosDia(d.items) + ' min' : '') + '</span></button>'; }).join('') + '</div>',
       tabs: true
     };
   }
@@ -384,9 +384,73 @@
     } else h += '<p class="vacio">Este día es de descanso. Agrega un ejercicio para convertirlo en día de entrenamiento.</p>';
     h += '<div class="pila" style="margin-top:16px"><button class="btn" data-a="rut-cambiar">Intercambiar con otro día</button>' + (d.items.length ? '<button class="btn peligro" data-a="rut-descanso">Dejar como día de descanso</button>' : '') + '</div>';
     return {
-      cab: '<button class="liga volver" data-a="rut-volver">‹ Tu semana</button><h1>' + DIAS[ui.dia - 1] + '</h1>',
+      cab: '<button class="liga volver" data-a="rut-volver">‹ Tu semana</button><div class="cab-fila"><h1>' + DIAS[ui.dia - 1] + '</h1>' + botonIA('dia') + '</div>',
       html: h, pie: '<button class="btn primario" data-a="it-agregar">Agregar ejercicio</button>', tabs: true
     };
+  }
+
+  // ---------- Rutina con IA ----------
+  const IA = G.IA;
+  const ESTRELLA = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.6 4.9 3.1 7.4 8 8-4.9.6-7.4 3.1-8 8-.6-4.9-3.1-7.4-8-8 4.9-.6 7.4-3.1 8-8z"/><path class="chica" d="M19 15.5c.25 2 1.25 3 3.25 3.25-2 .25-3 1.25-3.25 3.25-.25-2-1.25-3-3.25-3.25 2-.25 3-1.25 3.25-3.25z"/></svg>';
+  function botonIA(alcance) { return '<button class="ia-btn" data-a="ia-abrir" data-v="' + alcance + '" aria-label="Armar con inteligencia artificial">' + ESTRELLA + '</button>'; }
+  function hojaIAConfig() {
+    const c = IA.config(), p = c.proveedor;
+    abrir(cabHoja('Ajustes de IA', 'La clave se guarda solo en este teléfono') +
+      '<div class="seg ancho" role="group">' + Object.keys(IA.PROVEEDORES).map(k => '<button data-a="ia-prov" data-v="' + k + '" aria-pressed="' + (k === p) + '">' + IA.PROVEEDORES[k].nombre.split(' ')[0] + (IA.PROVEEDORES[k].gratis ? ' · gratis' : '') + '</button>').join('') + '</div>' +
+      '<p class="tenue chico" style="margin-top:12px">' + (p === 'gemini'
+        ? 'Gemini tiene un nivel gratis: entras con tu cuenta de Google a Google AI Studio, creas una clave y la pegas aquí. No pide tarjeta. En el nivel gratis, Google puede usar lo que le mandas para mejorar sus productos.'
+        : 'Claude cobra por uso: cada rutina cuesta unos centavos de dólar de saldo que recargas en la consola de Anthropic. Tu suscripción de Claude no sirve aquí; es una cuenta aparte.') + '</p>' +
+      '<p style="margin-top:8px"><a class="liga" href="' + IA.PROVEEDORES[p].clave + '" target="_blank" rel="noopener">Conseguir mi clave de ' + IA.PROVEEDORES[p].nombre.split(' ')[0] + '</a></p>' +
+      '<label class="campo"><span>Clave</span><input id="ia-clave" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Pega aquí tu clave" value="' + esc(c.claves[p] || '') + '"></label>' +
+      '<div class="pila" style="margin-top:18px"><button class="btn primario" data-a="ia-guardar">Guardar y cargar modelos</button>' +
+      (c.claves[p] ? '<button class="btn peligro" data-a="ia-borrar-clave">Borrar la clave</button>' : '') + '</div>');
+  }
+  function hojaIA() {
+    const x = ui.ia, c = IA.config(), p = c.proveedor, mods = c.modelos[p] || [], enc = st().profile && st().profile.encuesta;
+    if (x.cargando) { abrir('<div class="ia-cargando"><div class="ia-gira">' + ESTRELLA + '</div><h2>Armando tu rutina…</h2><p class="tenue">Puede tardar de 10 segundos a un minuto, según el esfuerzo.</p></div>'); return; }
+    if (x.resultado) {
+      const r = x.resultado;
+      abrir(cabHoja(x.alcance === 'dia' ? 'Propuesta para el ' + DIAS[x.dia - 1].toLowerCase() : 'Propuesta para tu semana', IA.PROVEEDORES[p].nombre.split(' ')[0] + ' · ' + (mods.find(m => m.id === c.modelo[p]) || { nombre: c.modelo[p] }).nombre) +
+        (r.explicacion ? '<p class="ia-expl">' + esc(r.explicacion) + '</p>' : '') +
+        '<div class="tarjeta lista-ej">' + Object.keys(r.dias).sort().map(d => {
+          const y = r.dias[d];
+          return '<div class="fila"><span class="cuerpo"><b>' + DIAS[d - 1] + (y.items.length ? ' · ' + esc(y.nombre) : '') + '</b><span>' +
+            (y.items.length ? esc(y.items.map(it => S.ejercicio(it.ex).nombre + ' ' + it.series.length + '×' + it.series[it.series.length - 1].reps).join(', ')) : 'Descanso') + '</span></span></div>';
+        }).join('') + '</div>' +
+        (r.quitados.length ? '<p class="tenue chico" style="margin-top:10px">Quité ' + r.quitados.length + ' ejercicio(s) que la IA propuso y que no están en la app o no van con tus molestias.</p>' : '') +
+        '<div class="pila" style="margin-top:18px"><button class="btn primario" data-a="ia-usar">Usar esta rutina</button><button class="btn" data-a="ia-otra">Pedir otra versión</button></div>');
+      return;
+    }
+    abrir(cabHoja(x.alcance === 'dia' ? 'Armar el ' + DIAS[x.dia - 1].toLowerCase() + ' con IA' : 'Armar tu semana con IA', 'La IA elige solo entre los ejercicios de la app') +
+      '<label class="campo" style="margin-top:0"><span>¿Qué quieres?</span><textarea id="ia-pedido" maxlength="600" placeholder="Por ejemplo: quiero ganar músculo pero también trotar 2 días; me duele un poco el hombro derecho; tengo 70 minutos.">' + esc(x.pedido || '') + '</textarea></label>' +
+      (enc && !enc.manual ? '<label class="interruptor"><span>Usar mis datos de la encuesta<small>Objetivo, nivel, días, tiempo, equipo, molestias, edad y medidas</small></span><input type="checkbox" id="ia-perfil"' + (x.usarPerfil !== false ? ' checked' : '') + '></label>' : '') +
+      '<label class="interruptor"><span>Partir de mi rutina actual<small>Para pedir cambios en lugar de una rutina nueva</small></span><input type="checkbox" id="ia-actual"' + (x.actual ? ' checked' : '') + '></label>' +
+      '<div class="ia-ajustes"><label class="campo"><span>Modelo</span><select id="ia-modelo">' + (mods.length ? mods.map(m => '<option value="' + esc(m.id) + '"' + (m.id === c.modelo[p] ? ' selected' : '') + '>' + esc(m.nombre) + '</option>').join('') : '<option value="">Cargando modelos…</option>') + '</select></label>' +
+      '<div class="campo"><span>Esfuerzo</span><div class="seg ancho">' + Object.keys(IA.ESFUERZO).map(k => '<button data-a="ia-esfuerzo" data-v="' + k + '" aria-pressed="' + (k === c.esfuerzo) + '">' + IA.ESFUERZO[k] + '</button>').join('') + '</div></div></div>' +
+      '<p class="tenue chico">Más esfuerzo = piensa más y tarda más' + (p === 'claude' ? ' (y cuesta un poco más)' : '') + '. Usando ' + IA.PROVEEDORES[p].nombre + '. <button class="liga" data-a="ia-config">Cambiar</button></p>' +
+      '<div style="margin-top:16px"><button class="btn primario" data-a="ia-generar">' + ESTRELLA.replace('<svg', '<svg class="ico-btn"') + 'Generar rutina</button></div>');
+    if (!mods.length) cargarModelos(false);
+  }
+  async function cargarModelos(avisar) {
+    const c = IA.config(), p = c.proveedor;
+    try {
+      const l = await IA.modelos(p, c.claves[p]);
+      const c2 = IA.config(); c2.modelos[p] = l;
+      if (!l.some(m => m.id === c2.modelo[p])) c2.modelo[p] = l.length ? l[0].id : '';
+      IA.guardar(c2);
+      if (ui.ia && !hoja.hidden) hojaIA();
+      if (avisar) toast(l.length + ' modelos disponibles');
+    } catch (e) {
+      toast(e.message === 'sin-internet' ? 'Sin internet' : e.message);
+      if (ui.ia && !hoja.hidden && !avisar) hojaIAConfig();
+    }
+  }
+  function leerHojaIA() {
+    const x = ui.ia, t = $('#ia-pedido'), pf = $('#ia-perfil'), ac = $('#ia-actual'), m = $('#ia-modelo');
+    if (t) x.pedido = t.value.trim();
+    if (pf) x.usarPerfil = pf.checked;
+    if (ac) x.actual = ac.checked;
+    if (m && m.value) { const c = IA.config(); c.modelo[c.proveedor] = m.value; IA.guardar(c); }
   }
 
   // ---------- Elegir, ver y editar ejercicios ----------
@@ -517,6 +581,7 @@
         '<section class="grupo sin-linea"><h2>' + esc(p.nombre) + '</h2><p>' + plan + '</p><div style="margin-top:12px"><button class="btn" data-a="aj-encuesta">' + (p.plan && p.plan.manual ? 'Hacer la encuesta' : 'Volver a hacer la encuesta') + '</button></div></section>' +
         '<section class="grupo"><h2>Entrenamiento</h2><div class="interruptor"><span>Unidad de peso<small>Para ejercicios nuevos. En cada ejercicio la cambias tocando "Peso (lb)"</small></span><span class="seg"><button data-a="aj-unidad" data-v="lb" aria-pressed="' + (u === 'lb') + '">lb</button><button data-a="aj-unidad" data-v="kg" aria-pressed="' + (u === 'kg') + '">kg</button></span></div>' +
         interruptor('autoDescanso', 'Iniciar el descanso al marcar una serie', 'Si lo apagas, el descanso solo empieza cuando tocas Iniciar') + '</section>' +
+        '<section class="grupo"><h2>Rutina con IA</h2><p>' + (IA.listo() ? 'Conectada con ' + IA.PROVEEDORES[IA.config().proveedor].nombre + '.' : 'Opcional. Toca la estrellita en la pantalla Rutina para armar o ajustar tu semana con Gemini (gratis) o Claude.') + '</p><div style="margin-top:12px"><button class="btn" data-a="ia-config-aj">' + (IA.listo() ? 'Cambiar clave o servicio' : 'Configurar la IA') + '</button></div></section>' +
         '<section class="grupo"><h2>Google Drive</h2>' + drive + '</section>' +
         '<section class="grupo"><h2>Pitido del descanso</h2>' + interruptor('sonido', 'Sonar al terminar el descanso') + interruptor('cuenta', 'Avisar 3, 2, 1 antes') + interruptor('enSilencio', 'Sonar aunque el iPhone esté en silencio', 'Puede pausar tu música mientras suena') + '<div style="margin-top:8px"><button class="btn" data-a="aj-probar">Probar el pitido</button></div></section>' +
         '<section class="grupo"><h2>Pantalla</h2>' + interruptor('pantalla', 'Mantener la pantalla encendida al entrenar', D.nativo ? 'Si bloqueas el iPhone, el aviso llega como notificación con sonido' : 'Con el iPhone bloqueado el pitido no puede sonar') + '</section>' +
@@ -716,6 +781,45 @@
         d.items.splice(ui.ej.i, 1); if (!d.items.length) d.nombre = 'Descanso';
         ui.ej = null; S.tocar('routine'); render();
       }, true);
+    },
+
+    // IA
+    'ia-abrir'(el) {
+      ui.ia = { alcance: el.dataset.v, dia: ui.dia, pedido: '', usarPerfil: true, actual: false };
+      if (IA.listo()) hojaIA(); else hojaIAConfig();
+    },
+    'ia-config-aj'() { ui.ia = null; hojaIAConfig(); },
+    'ia-config'() { leerHojaIA(); hojaIAConfig(); },
+    'ia-prov'(el) { const c = IA.config(); c.proveedor = el.dataset.v; IA.guardar(c); hojaIAConfig(); },
+    'ia-guardar'() {
+      const c = IA.config(), v = $('#ia-clave').value.trim();
+      if (!v) { toast('Pega tu clave'); return; }
+      c.claves[c.proveedor] = v; c.modelos[c.proveedor] = []; IA.guardar(c);
+      if (ui.ia) { hojaIA(); } else { cerrar(); cargarModelos(true); }
+    },
+    'ia-borrar-clave'() { const c = IA.config(); delete c.claves[c.proveedor]; c.modelos[c.proveedor] = []; IA.guardar(c); hojaIAConfig(); toast('Clave borrada'); },
+    'ia-esfuerzo'(el) { leerHojaIA(); const c = IA.config(); c.esfuerzo = el.dataset.v; IA.guardar(c); hojaIA(); },
+    async 'ia-generar'() {
+      leerHojaIA();
+      const x = ui.ia, s = st(), enc = s.profile && s.profile.encuesta;
+      x.cargando = true; hojaIA();
+      try {
+        x.resultado = await IA.generar({ alcance: x.alcance, dia: x.dia, pedido: x.pedido, usarPerfil: !!(enc && !enc.manual && x.usarPerfil !== false), encuesta: enc,
+          actual: x.actual ? IA.rutinaComoTexto(s.routine) : '' });
+      } catch (e) { toast(e.message === 'sin-internet' ? 'Necesitas internet para usar la IA' : e.message); }
+      x.cargando = false;
+      if (ui.ia === x && !hoja.hidden) hojaIA();
+    },
+    'ia-otra'() { ui.ia.resultado = null; hojaIA(); },
+    'ia-usar'() {
+      const x = ui.ia, r = x.resultado, s = st();
+      if (x.alcance === 'dia') {
+        s.routine.dias[x.dia] = r.dias[x.dia] || { nombre: 'Descanso', items: [] };
+      } else {
+        for (let d = 1; d <= 7; d++) s.routine.dias[d] = r.dias[d] || { nombre: 'Descanso', items: [] };
+        s.active = null;
+      }
+      S.tocar('routine'); ui.ia = null; cerrar(); render(); toast('Rutina actualizada. Puedes cambiar lo que quieras');
     },
 
     // Rutina
