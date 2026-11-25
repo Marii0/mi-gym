@@ -29,6 +29,18 @@ fs.readdirSync(icono).filter(f => f.endsWith('.png')).forEach(f => fs.copyFileSy
 const splash = path.join(assets, 'Splash.imageset');
 if (fs.existsSync(splash)) fs.readdirSync(splash).filter(f => f.endsWith('.png')).forEach(f => fs.copyFileSync(path.join(__dirname, 'splash.png'), path.join(splash, f)));
 
-// 3. Sonido del aviso (el flujo de GitHub lo registra después en el proyecto de Xcode)
+// 3. Versión: sale de package.json. SideStore compara este número con el de fuente.json para ofrecer la actualización.
+const version = require(path.join(raiz, 'package.json')).version, compilacion = process.env.GITHUB_RUN_NUMBER || '1';
+let pl = fs.readFileSync(plist, 'utf8');
+pl = pl.replace(/(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]*(<\/string>)/, '$1' + version + '$2')
+  .replace(/(<key>CFBundleVersion<\/key>\s*<string>)[^<]*(<\/string>)/, '$1' + compilacion + '$2');
+fs.writeFileSync(plist, pl);
+const pbx = path.join(raiz, 'ios', 'App', 'App.xcodeproj', 'project.pbxproj');
+if (fs.existsSync(pbx)) {
+  fs.writeFileSync(pbx, fs.readFileSync(pbx, 'utf8').replace(/MARKETING_VERSION = [^;]+;/g, 'MARKETING_VERSION = ' + version + ';')
+    .replace(/CURRENT_PROJECT_VERSION = [^;]+;/g, 'CURRENT_PROJECT_VERSION = ' + compilacion + ';'));
+}
+
+// 4. Sonido del aviso (el flujo de GitHub lo registra después en el proyecto de Xcode)
 fs.copyFileSync(path.join(__dirname, 'pitido.wav'), path.join(app, 'pitido.wav'));
-console.log('Proyecto de iOS ajustado' + (idIos ? '' : ' (sin ID de Google para iOS)'));
+console.log('Proyecto de iOS ajustado, versión ' + version + (idIos ? '' : ' (sin ID de Google para iOS)'));
