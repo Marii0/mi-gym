@@ -1,0 +1,32 @@
+{
+  "name": "Mi Gym",
+  "identifier": "io.github.marii0.migym.fuente",
+  "subtitle": "La app de gym de Mario y Andrea",
+  "iconURL": "https://raw.githubusercontent.com/Marii0/mi-gym/main/icons/icon-512.png",
+  "tintColor": "#84B03C",
+  "apps": [
+    {
+      "name": "Mi Gym",
+      "bundleIdentifier": "io.github.marii0.migym",
+      "developerName": "Mario",
+      "subtitle": "Rutina, descansos y calendario",
+      "localizedDescription": "Rutina de gym a tu medida, descansos con pitido, calendario de entrenamientos y copia en tu Google Drive.",
+      "iconURL": "https://raw.githubusercontent.com/Marii0/mi-gym/main/icons/icon-512.png",
+      "tintColor": "#84B03C",
+      "category": "other",
+      "screenshots": [],
+      "versions": [
+        {
+          "version": "1.1.0",
+          "date": "2026-11-24",
+          "localizedDescription": "Ícono nuevo, rutina con IA, calendario para marcar y desmarcar días, y series sin palomita.",
+          "downloadURL": "https://github.com/Marii0/mi-gym/releases/download/ios/MiGym.ipa",
+          "size": 5108743,
+          "minOSVersion": "14.0"
+        }
+      ],
+      "appPermissions": { "entitlements": [], "privacy": {} }
+    }
+  ],
+  "news": []
+}
