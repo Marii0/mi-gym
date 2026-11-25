@@ -3,12 +3,12 @@
    - Las fotos se guardan aparte ("gym-img-v1") para no volver a bajarlas en cada actualización.
    IMPORTANTE: cuando cambies cualquier archivo de la app, sube el número de VERSION
    para que los teléfonos descarguen la versión nueva. */
-const VERSION = 'v7';
+const VERSION = 'v8';
 const APP = 'gym-app-' + VERSION;
 const FOTOS = 'gym-img-v1';
 const ARCHIVOS = [
   './', 'index.html', 'manifest.webmanifest', 'css/styles.css',
-  'js/config.js', 'js/exercises.js', 'js/musculos.js', 'js/ia.js', 'js/generator.js', 'js/store.js', 'js/drive.js', 'js/audio.js', 'js/app.js',
+  'js/config.js', 'js/exercises.js', 'js/musculos.js', 'js/ia.js', 'js/generator.js', 'js/store.js', 'js/progreso.js', 'js/drive.js', 'js/audio.js', 'js/app.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'
 ];
 
