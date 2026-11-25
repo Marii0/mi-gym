@@ -1,6 +1,6 @@
 {
   "name": "mi-gym",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Mi Gym: app de rutina de gym. Este archivo solo se usa para compilar la app nativa de iOS.",
   "scripts": {
