@@ -17,15 +17,18 @@
       "screenshots": [],
       "versions": [
         {
-          "version": "1.1.0",
-          "date": "2026-11-24",
-          "localizedDescription": "Ícono nuevo, rutina con IA, calendario para marcar y desmarcar días, y series sin palomita.",
+          "version": "1.2.0",
+          "date": "2026-11-25",
+          "localizedDescription": "Progreso con gráficas (general y por ejercicio), reemplazo de ejercicios con recomendados, peso sugerido, columnas alineadas con el cronómetro, pantalla de carga y transiciones.",
           "downloadURL": "https://github.com/Marii0/mi-gym/releases/download/ios/MiGym.ipa",
-          "size": 5108743,
+          "size": 5118806,
           "minOSVersion": "14.0"
         }
       ],
-      "appPermissions": { "entitlements": [], "privacy": {} }
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {}
+      }
     }
   ],
   "news": []
