@@ -111,7 +111,7 @@
     const fechas = Object.keys(state.logs).filter(f => !state.logs[f].borrado && (!antesDe || f < antesDe)).sort().reverse();
     for (let i = 0; i < fechas.length; i++) {
       const it = (state.logs[fechas[i]].items || []).find(x => x.ex === exId);
-      if (it && it.sets && it.sets.length) return { fecha: fechas[i], sets: it.sets };
+      if (it && it.sets && it.sets.length) return { fecha: fechas[i], sets: it.sets, u: it.u || state.logs[fechas[i]].u };
     }
     return null;
   }

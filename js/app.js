@@ -3,7 +3,7 @@
    fijos y solo el contenido de en medio se desliza. Los botones llevan data-a="accion" y se atienden
    en el objeto "acciones" al final. */
 (function () {
-  const G = window.GYM, S = G.Store, Gen = G.Gen, D = G.Drive, A = G.Audio;
+  const G = window.GYM, S = G.Store, Gen = G.Gen, D = G.Drive, A = G.Audio, P = G.Prog;
   const $ = s => document.querySelector(s);
   const app = $('#app'), cab = $('#cab'), vista = $('#vista'), pie = $('#pie'), tabs = $('#tabs'), hoja = $('#hoja'), toastEl = $('#toast');
   const DIAS = Gen.DIAS, LETRAS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -12,7 +12,7 @@
   const st = () => S.state;
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // ui.ej = { dia, i, editar } cuando se está viendo un ejercicio.
-  const ui = { tab: 'hoy', dia: null, verDia: null, mes: null, enc: null, plan: null, ej: null, pick: null, alConfirmar: null, grupo: '' };
+  const ui = { tab: 'hoy', dia: null, verDia: null, mes: null, enc: null, plan: null, ej: null, pick: null, alConfirmar: null, grupo: '', pop: null, pg: { modo: 'sem', met: 'ent' }, pe: null };
 
   // ---------- Utilidades ----------
   function reloj(seg) { seg = Math.max(0, Math.round(seg)); return String(Math.floor(seg / 60)).padStart(2, '0') + ':' + String(seg % 60).padStart(2, '0'); }
@@ -70,9 +70,12 @@
     if (ui.plan) return vPlan();
     if (!s.profile || !s.routine) return vBienvenida();
     if (ui.ej) return vEjercicio();
-    return ({ hoy: vHoy, rutina: ui.dia ? vDia : vRutina, cal: vCalendario, ajustes: vAjustes })[ui.tab]();
+    return ({ hoy: vHoy, rutina: ui.dia ? vDia : vRutina, cal: vCalendario, prog: vProgreso, ajustes: vAjustes })[ui.tab]();
   }
-  function render(conservar) {
+  // Al cambiar de pantalla, el contenido entra con un movimiento corto: 'der', 'izq', 'arr', 'aba' o 'fade'.
+  const ANIMS = ['a-der', 'a-izq', 'a-arr', 'a-aba', 'a-fade'];
+  function animar(el, tipo) { ANIMS.forEach(c => el.classList.remove(c)); void el.offsetWidth; el.classList.add('a-' + tipo); }
+  function render(conservar, anim) {
     const y = vista.scrollTop, p = pantalla();
     cab.innerHTML = p.cab || ''; cab.hidden = !p.cab;
     vista.innerHTML = p.html;
@@ -82,6 +85,8 @@
     vista.classList.toggle('sin-cab', !p.cab);
     if (p.tabs) dibujarTabs();
     vista.scrollTop = conservar ? y : 0;
+    if (!conservar) { animar(vista, anim || 'fade'); if (p.cab) animar(cab, 'fade'); if (p.pie) animar(pie, 'fade'); }
+    ui.pop = null;
     if (p.tabs && ui.tab === 'ajustes') contarFotos();
     if (ui.ej) { prepararRueda(); pintarTimer(); }
   }
@@ -89,11 +94,17 @@
     hoy: '<path d="M3 9v6M6.5 6.5v11M17.5 6.5v11M21 9v6M6.5 12h11"/>',
     rutina: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
     cal: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+    prog: '<path d="M4 19h16M7 15v-4M12 15V6M17 15v-7"/>',
     ajustes: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'
   };
+  const TABS = [['hoy', 'Hoy'], ['rutina', 'Rutina'], ['cal', 'Calendario'], ['prog', 'Progreso'], ['ajustes', 'Ajustes']];
+  const posTab = v => TABS.findIndex(t => t[0] === v);
+  // Las pestañas se dibujan una sola vez; después solo se mueve la pastilla que marca la que está abierta.
   function dibujarTabs() {
-    tabs.innerHTML = [['hoy', 'Hoy'], ['rutina', 'Rutina'], ['cal', 'Calendario'], ['ajustes', 'Ajustes']].map(t =>
-      '<button data-a="tab" data-v="' + t[0] + '"' + (ui.tab === t[0] ? ' aria-current="page"' : '') + '><svg viewBox="0 0 24 24" aria-hidden="true">' + ICONOS[t[0]] + '</svg>' + t[1] + '</button>').join('');
+    if (!tabs.firstChild) tabs.innerHTML = '<i class="ind"></i>' + TABS.map(t => '<button data-a="tab" data-v="' + t[0] + '"><svg viewBox="0 0 24 24" aria-hidden="true">' + ICONOS[t[0]] + '</svg>' + t[1] + '</button>').join('');
+    const i = posTab(ui.tab);
+    tabs.querySelectorAll('button').forEach((b, k) => { if (k === i) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+    tabs.querySelector('.ind').style.transform = 'translateX(' + (i * 100) + '%)';
   }
 
   // ---------- Bienvenida ----------
@@ -154,9 +165,9 @@
   function encAvanza() {
     let i = ui.enc.i + 1;
     while (i < PREG.length && !aplica(i)) i++;
-    if (i < PREG.length) { ui.enc.i = i; render(); return; }
+    if (i < PREG.length) { ui.enc.i = i; render(false, 'der'); return; }
     const r = ui.enc.r;
-    ui.plan = { r, ops: Gen.opciones(r), sel: 0 }; ui.enc = null; render();
+    ui.plan = { r, ops: Gen.opciones(r), sel: 0 }; ui.enc = null; render(false, 'der');
   }
 
   // ---------- Opciones de plan ----------
@@ -293,7 +304,7 @@
   // ---------- Un ejercicio: series, descanso, notas ----------
   function itemActual() { return ui.ej && st().routine ? st().routine.dias[ui.ej.dia].items[ui.ej.i] : null; }
   function copiaItem() { const it = itemActual(), a = st().active; return JSON.stringify({ it, h: a && a.hechos[it.uid] ? a.hechos[it.uid] : null }); }
-  function finEdicion() { if (ui.ej.salir) ui.ej = null; else { ui.ej.editar = false; ui.ej.rueda = false; ui.ej.copia = null; } render(); }
+  function finEdicion() { const sale = ui.ej.salir; if (sale) ui.ej = null; else { ui.ej.editar = false; ui.ej.rueda = false; ui.ej.copia = null; } render(false, sale ? 'izq' : 'fade'); }
   function numeroSerie(se, i) { let n = 0; for (let k = 0; k <= i; k++) if (se[k].tipo !== 'c') n++; return n; }
   function vEjercicio() {
     const x = ui.ej, dia = st().routine.dias[x.dia], it = dia.items[x.i];
@@ -301,25 +312,27 @@
     const e = S.ejercicio(it.ex), ed = x.editar, cardio = e.tipo === 'k', a = st().active;
     let h = '<section class="ej' + (ed ? ' editando' : '') + '"><div class="ej-img">' + fotoGrande(e) + G.Musculos.figura(e) + '</div>' +
       '<div class="ej-titulo"><h1>' + esc(e.nombre) + '</h1><button class="info" data-a="ej-info" aria-label="Cómo se hace">i</button></div>';
-    h += '<h2 class="sub-t">Series</h2><div class="tarjeta' + (cardio ? ' sin-peso' : '') + '"><div class="st-cab"><span></span><span>' + (cardio ? 'Tiempo' : 'Repeticiones') + '</span>' + (cardio ? '' : '<button class="st-uni" data-a="ej-unidad" aria-label="Cambiar entre libras y kilos">Peso (<b>' + uni(it) + '</b>)</button>') + '</div>';
+    h += '<h2 class="sub-t">Series</h2><div class="tarjeta' + (cardio ? ' sin-peso' : '') + '"><div class="st-cab"><span></span><span>' + (cardio ? 'Tiempo' : 'Repeticiones') + '</span>' + (cardio ? '<span></span>' : '<button class="st-uni" data-a="ej-unidad" aria-label="Cambiar entre libras y kilos">Peso (<b>' + uni(it) + '</b>)</button>') + '</div>';
     h += it.series.map((se, i) => {
       const ok = hecho(it.uid, i), texto = !/^\d*$/.test(se.reps || '');
-      return '<div class="st-fila' + (ok && !ed ? ' hecha' : '') + (se.tipo === 'c' ? ' cal' : '') + '">' +
+      return '<div class="st-fila' + (ok && !ed ? ' hecha' : '') + (se.tipo === 'c' ? ' cal' : '') + '"><span class="st-izq">' +
         (ed ? '<button class="menos" data-a="se-quitar" data-v="' + i + '" aria-label="Quitar serie">−</button>' : '') +
-        '<button class="circ' + (se.tipo === 'c' ? ' cal' : '') + (ok && !ed ? ' ok' : '') + '" data-a="se-circ" data-v="' + i + '" aria-label="' + (ed ? 'Cambiar tipo de serie' : 'Marcar serie') + '">' + (se.tipo === 'c' ? 'C' : numeroSerie(it.series, i)) + '</button>' +
-        '<input class="num" data-c="se-reps" data-v="' + i + '" value="' + esc(se.reps) + '" ' + (texto ? '' : 'inputmode="numeric" pattern="[0-9]*"') + ' aria-label="Repeticiones">' +
-        (cardio ? '' : '<input class="num" data-c="se-peso" data-v="' + i + '" value="' + esc(se.peso) + '" inputmode="decimal" placeholder="–" aria-label="Peso">') + '</div>';
+        '<button class="circ' + (se.tipo === 'c' ? ' cal' : '') + (ok && !ed ? ' ok' : '') + (ui.pop === i ? ' pop' : '') + '" data-a="se-circ" data-v="' + i + '" aria-label="' + (ed ? 'Cambiar tipo de serie' : 'Marcar serie') + '">' + (se.tipo === 'c' ? 'C' : numeroSerie(it.series, i)) + '</button></span>' +
+        '<input class="num' + (texto && String(se.reps).length > 7 ? ' txt' : '') + '" data-c="se-reps" data-v="' + i + '" value="' + esc(se.reps) + '" ' + (texto ? '' : 'inputmode="numeric" pattern="[0-9]*"') + ' aria-label="Repeticiones">' +
+        (cardio ? '<span></span>' : '<input class="num" data-c="se-peso" data-v="' + i + '" value="' + esc(se.peso) + '" inputmode="decimal" placeholder="–" aria-label="Peso">') + '</div>';
     }).join('');
     if (ed) h += '<button class="st-agregar" data-a="se-agregar"><span>+</span>Agregar nueva serie</button>' +
       '<p class="tenue chico st-nota">Toca el círculo de una serie para marcarla como calentamiento (C) o normal.</p>';
     h += '<div class="st-desc" id="t-fila"><span>Descanso</span><button class="t-reloj' + (x.rueda ? ' abierta' : '') + '" id="t-reloj" data-a="t-rueda" aria-label="Cambiar el tiempo de descanso">' + reloj(it.rest) + '</button>' +
       (ed ? '<span class="t-hueco"></span>' : '<button class="pildora suave" id="t-btn" data-a="t-toggle">Iniciar</button>') + '</div>' + (x.rueda ? rueda(it.rest) : '') + '</div>';
+    if (!ed && !cardio) h += filaSugerencia(it, e);
     h += '<h2 class="sub-t">Notas</h2><textarea class="notas" data-c="ej-nota" maxlength="300" placeholder="Por ejemplo: asiento en la posición 4, 2 repeticiones de reserva">' + esc(it.nota || '') + '</textarea>';
     const ico = d => '<span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true">' + d + '</svg></span>';
     if (ed) h += '<button class="fila-liga" data-a="it-cambiar">' + ico('<path d="M7 9h11l-3-3M17 15H6l3 3"/>') + '<span>Reemplazar ejercicio</span></button>' +
       '<button class="fila-liga" data-a="ej-editar" data-id="' + esc(it.ex) + '">' + ico('<path d="M5 19l1-4L16 5l3 3L9 18z"/>') + '<span>Cambiar nombre, tips o imagen</span></button>' +
       '<button class="fila-liga rojo" data-a="it-quitar">' + ico('<path d="M6 7h12M9 7V5h6v2M8 7l1 12h6l1-12"/>') + '<span>Quitar de este día</span></button>';
-    else h += '<button class="fila-liga" data-a="ej-progreso">' + ico('<path d="M5 16l4-4 3 3 6-7M14 8h4v4"/>') + '<span>Progreso del ejercicio</span><span class="chev">›</span></button>';
+    else h += '<button class="fila-liga" data-a="ej-progreso">' + ico('<path d="M5 16l4-4 3 3 6-7M14 8h4v4"/>') + '<span>Progreso del ejercicio</span><span class="chev">›</span></button>' +
+      '<button class="fila-liga" data-a="it-cambiar">' + ico('<path d="M7 9h11l-3-3M17 15H6l3 3"/>') + '<span>Reemplazar por otro ejercicio</span><span class="chev">›</span></button>';
     h += '</section>';
     const cuenta = '<span class="cuenta">' + (x.i + 1) + ' de ' + dia.items.length + '</span>';
     return {
@@ -330,6 +343,15 @@
       html: h,
       pie: ed ? '' : (a ? '<button class="flota gris" data-a="ent-terminar">Terminar entrenamiento</button>' : '<button class="flota" data-a="ent-empezar" data-v="' + x.dia + '">Comienza a entrenar</button>')
     };
+  }
+
+  // Peso sugerido: sale de la última vez que se hizo el ejercicio. Solo aparece si cambia algo.
+  function filaSugerencia(it, e) {
+    const normales = it.series.filter(x => x.tipo !== 'c'), vacias = normales.some(x => !x.peso), sg = P.sugerir(it, uni(it));
+    if (!sg) return vacias && e.equipo !== 'cuerpo' ? '<p class="st-sug solo"><span>Sin historial de este ejercicio. Empieza con un peso que te deje 2 repeticiones de sobra.</span></p>' : '';
+    if (!vacias && !normales.some(x => P.num(x.peso) < P.num(sg.peso))) return '';
+    const cuando = P.corta(sg.fecha), antes = sg.antes + ' ' + sg.uAntes + ' × ' + sg.reps;
+    return '<p class="st-sug"><span><b>Peso sugerido: ' + esc(sg.peso) + ' ' + uni(it) + '</b>' + (sg.subir ? 'Completaste ' + esc(antes) + ' el ' + cuando + '. Toca subir.' : 'El ' + cuando + ' hiciste ' + esc(antes) + '.') + '</span><button class="pildora suave" data-a="sug-usar" data-v="' + esc(sg.peso) + '">Usar</button></p>';
   }
 
   // ---------- Ruedita para el tiempo de descanso (máximo 5 minutos) ----------
@@ -459,8 +481,17 @@
     const l = S.todos().filter(e => (!ui.grupo || e.grupo === ui.grupo) && (!q || e.nombre.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').indexOf(q) >= 0));
     return l.length ? l.map(e => '<button class="fila" data-a="pick-ok" data-id="' + esc(e.id) + '">' + miniFoto(e) + '<span class="cuerpo"><b>' + esc(e.nombre) + '</b><span>' + (G.GRUPOS[e.grupo] || '') + '</span></span></button>').join('') : '<p class="vacio">No hay ejercicios con ese nombre. Puedes crear el tuyo.</p>';
   }
+  function recomendados() {
+    const it = itemActual(); if (!it) return '';
+    const enc = st().profile.encuesta, l = P.alternativas(it, st().routine.dias[ui.ej.dia]);
+    if (!l.length) return '';
+    return '<h3 class="pick-t">Recomendados</h3><p class="tenue chico">Trabajan lo mismo que ' + esc(S.ejercicio(it.ex).nombre) + '. Las repeticiones se ponen solas según tu objetivo.</p><div class="tarjeta lista-ej recs">' + l.map(x => {
+      const e = x.e, m = G.Musculos.texto(e).p.join(', '), n = Gen.nuevoItem(e, enc, ui.ej.i);
+      return '<div class="fila"><button class="fila-in" data-a="pick-ok" data-id="' + esc(e.id) + '">' + miniFoto(e) + '<span class="cuerpo"><b>' + esc(e.nombre) + '</b><span>' + esc([m, P.equipo(e)].filter(Boolean).join(' · ')) + (x.conEquipo ? '' : ' · fuera de tu equipo') + '</span></span><span class="hechas">' + n.series.length + ' × ' + esc(n.series[0].reps) + '</span></button></div>';
+    }).join('') + '</div><h3 class="pick-t">Todos los ejercicios</h3>';
+  }
   function hojaPick(modo) {
-    abrir(cabHoja(modo === 'cambiar' ? 'Reemplazar por otro ejercicio' : 'Agregar ejercicio') +
+    abrir(cabHoja(modo === 'cambiar' ? 'Reemplazar ejercicio' : 'Agregar ejercicio') + (modo === 'cambiar' ? recomendados() : '') +
       '<label class="campo" style="margin-top:0"><input id="pick-q" data-c="pick-q" type="search" placeholder="Buscar ejercicio"></label>' +
       '<div class="chips" style="margin-top:10px"><button class="chip" data-a="pick-g" data-v="" aria-pressed="' + (!ui.grupo) + '">Todos</button>' + Object.keys(G.GRUPOS).filter(g => g !== 'otro').map(g => '<button class="chip" data-a="pick-g" data-v="' + g + '" aria-pressed="' + (ui.grupo === g) + '">' + G.GRUPOS[g] + '</button>').join('') + '</div>' +
       '<div class="lista" id="pick-lista">' + listaPick() + '</div><div style="margin-top:16px"><button class="btn" data-a="ej-nuevo">Crear un ejercicio propio</button></div>');
@@ -468,8 +499,19 @@
   }
   function ponerEjercicio(id) {
     const nDia = ui.ej ? ui.ej.dia : ui.dia, d = st().routine.dias[nDia], e = S.ejercicio(id), pick = ui.pick || { modo: 'agregar' };
-    if (pick.modo === 'cambiar' && ui.ej) { const it = d.items[ui.ej.i]; if (it) it.ex = id; }
-    else {
+    if (pick.modo === 'cambiar' && ui.ej) {
+      // El ejercicio nuevo llega con sus series y repeticiones según el objetivo; el peso lo pones tú.
+      const it = d.items[ui.ej.i], a = st().active;
+      if (it && it.ex !== id) {
+        const n = Gen.nuevoItem(e, st().profile.encuesta, ui.ej.i);
+        if (e.tipo === 'k') { n.series = [{ reps: '15 min', peso: '', tipo: 'n' }]; n.rest = 0; n.nota = ''; }
+        it.ex = id; it.series = n.series; it.rest = n.rest; it.nota = n.nota;
+        if (a) delete a.hechos[it.uid];
+        S.tocar('routine'); cerrar(); render(false, 'fade');
+        toast('Listo: ' + e.nombre + ', ' + resumenItem(it));
+        return;
+      }
+    } else {
       if (!d.items.length && (!d.nombre || d.nombre === 'Descanso')) d.nombre = 'Entrenamiento';
       const it = Gen.nuevoItem(e, st().profile.encuesta, d.items.length);
       if (e.tipo === 'k') { it.series = [{ reps: '15 min', peso: '', tipo: 'n' }]; it.rest = 0; it.nota = ''; }
@@ -511,12 +553,53 @@
       img.src = url;
     });
   }
+  // ---------- Progreso de un ejercicio (solo se abre desde el ejercicio) ----------
+  const fechaLarga = f => new Date(f + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
   function hojaProgreso(id) {
-    const e = S.ejercicio(id), h = S.historial(id);
-    abrir(cabHoja('Progreso', e.nombre) + (h.length ? '<div class="lista">' + h.slice(0, 30).map(r => {
-      const d = new Date(r.fecha + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
-      return '<div class="fila"><span class="cuerpo"><b>' + d + '</b><span>' + r.sets.map(x => esc((x.kg ? x.kg + ' ' + (r.u || unidad()) + ' × ' : '') + (x.reps || '✓'))).join(', ') + '</span></span></div>';
-    }).join('') + '</div>' : '<p class="tenue">Aquí va a aparecer cada vez que hagas este ejercicio, con sus pesos y repeticiones.</p>'));
+    const e = S.ejercicio(id), it = itemActual(), u = it && it.ex === id ? uni(it) : unidad(), l = P.deEjercicio(id, u), h = S.historial(id);
+    if (!l.length) { abrir(cabHoja('Progreso', e.nombre) + '<p class="tenue">Aquí va a aparecer una gráfica con tu avance cada vez que hagas este ejercicio.</p>'); return; }
+    const conPeso = l.some(x => x.max > 0), conReps = l.some(x => x.reps > 0);
+    const METS = [];
+    if (conPeso) METS.push(['max', 'Peso máximo'], ['vol', 'Volumen']);
+    if (conReps) METS.push(['reps', 'Repeticiones']);
+    if (!conPeso && !conReps) METS.push(['tiempo', 'Tiempo']);
+    if (!ui.pe || ui.pe.id !== id || !METS.some(m => m[0] === ui.pe.met)) ui.pe = { id, met: METS[0][0] };
+    const met = ui.pe.met, ult = l.slice(-16);
+    const uni2 = { max: u, vol: u, reps: 'repeticiones', tiempo: /min/.test((h[0].sets[0] || {}).reps || '') ? 'min' : 's' }[met];
+    const datos = ult.map(x => ({ etq: P.corta(x.fecha), v: x[met], n: P.fmt(x[met]), u: uni2, t: fechaLarga(x.fecha) + (met === 'max' && x.repsMax ? ' · ' + x.repsMax + ' repeticiones' : '') }));
+    const fin = datos[datos.length - 1], mejor = l.reduce((a, x) => (x.max > a.max ? x : a), l[0]), primero = ult[0][met], cambio = fin.v - primero;
+    let tiles = '<div><b>' + l.length + '</b><span>' + (l.length === 1 ? 'vez' : 'veces') + '</span></div>';
+    if (conPeso) tiles = '<div><b>' + P.fmt(mejor.max) + '<small> ' + u + '</small></b><span>mejor peso, ' + P.corta(mejor.fecha) + '</span></div>' + tiles;
+    if (ult.length > 1 && primero > 0) tiles += '<div><b>' + (cambio > 0 ? '+' : cambio < 0 ? '−' : '') + P.fmt(Math.abs(cambio)) + '</b><span>' + (met === 'max' || met === 'vol' ? u + ' ' : '') + 'desde ' + P.corta(ult[0].fecha) + '</span></div>';
+    abrir(cabHoja('Progreso', e.nombre) + '<div class="resumen">' + tiles + '</div>' +
+      (METS.length > 1 ? '<div class="seg ancho graf-met">' + METS.map(m => '<button data-a="pe-met" data-v="' + m[0] + '" aria-pressed="' + (m[0] === met) + '">' + m[1] + '</button>').join('') + '</div>' : '') +
+      '<div class="tarjeta graf"><p class="g-lect"><b class="g-n">' + fin.n + '</b> <span class="g-u">' + fin.u + '</span><span class="g-t">' + fin.t + '</span></p>' + P.linea(datos, { sel: datos.length - 1, titulo: METS.find(m => m[0] === met)[1] + ' de ' + e.nombre }) + '</div>' +
+      (met === 'vol' ? '<p class="tenue chico" style="margin-top:8px">Volumen: peso × repeticiones, sumando todas las series del día.</p>' : '') +
+      '<h3 class="pick-t">Historial</h3><div class="lista">' + h.slice(0, 30).map(r => '<div class="fila"><span class="cuerpo"><b>' + fechaLarga(r.fecha) + '</b><span>' + r.sets.map(x => esc((x.kg ? x.kg + ' ' + (r.u || unidad()) + ' × ' : '') + (x.reps || '✓'))).join(', ') + '</span></span></div>').join('') + '</div>');
+  }
+
+  // ---------- Progreso general ----------
+  const MET = { ent: ['Entrenamientos', 'entrenamientos'], series: ['Series', 'series'], vol: ['Volumen', ''], min: ['Minutos', 'min'] };
+  function vProgreso() {
+    const s = st(), u = unidad(), pg = ui.pg, e = estadisticas();
+    const total = Object.keys(s.logs).filter(f => registro(f)).length;
+    if (!total) return { cab: '<h1>Progreso</h1>', html: '<p class="vacio">Todavía no hay entrenamientos guardados. Cuando termines el primero, aquí vas a ver tus gráficas por semana y por mes.</p>', tabs: true };
+    const sem = P.general('sem', u), esta = sem[sem.length - 1], plan = Object.keys(s.routine.dias).filter(d => s.routine.dias[d].items.length).length;
+    const ult4 = sem.slice(-5, -1), prom = ult4.reduce((a, c) => a + c.ent, 0) / 4;
+    const cubos = pg.modo === 'mes' ? P.general('mes', u) : sem, met = pg.met;
+    const datos = cubos.map(c => ({ etq: c.etq, v: c[met], n: P.fmt(c[met]), u: met === 'vol' ? u : met === 'ent' && c.ent === 1 ? 'entrenamiento' : MET[met][1], t: c.largo }));
+    const fin = datos[datos.length - 1], grupos = P.porGrupo(28), maxG = grupos.length ? grupos[0].n : 1, marcas = P.marcas();
+    let h = '<div class="resumen"><div><b>' + esta.ent + (plan ? '<small> de ' + plan + '</small>' : '') + '</b><span>esta semana</span></div><div><b>' + P.fmt(prom) + '</b><span>promedio semanal</span></div><div><b>' + e.racha + '</b><span>' + (e.racha === 1 ? 'semana seguida' : 'semanas seguidas') + '</span></div></div>';
+    h += '<div class="seg ancho graf-met">' + Object.keys(MET).map(k => '<button data-a="pg-met" data-v="' + k + '" aria-pressed="' + (k === met) + '">' + MET[k][0] + '</button>').join('') + '</div>';
+    h += '<div class="tarjeta graf"><div class="g-arriba"><p class="g-lect"><b class="g-n">' + fin.n + '</b> <span class="g-u">' + fin.u + '</span><span class="g-t">' + fin.t + '</span></p>' +
+      '<span class="seg quieto"><button data-a="pg-modo" data-v="sem" aria-pressed="' + (pg.modo !== 'mes') + '">Semanas</button><button data-a="pg-modo" data-v="mes" aria-pressed="' + (pg.modo === 'mes') + '">Meses</button></span></div>' +
+      P.barras(datos, { sel: datos.length - 1, entero: met !== 'vol', titulo: MET[met][0] + (pg.modo === 'mes' ? ' por mes' : ' por semana') }) + '</div>';
+    if (met === 'vol') h += '<p class="tenue chico" style="margin-top:8px">Volumen: peso × repeticiones de todas tus series, en ' + (u === 'kg' ? 'kilos' : 'libras') + '.</p>';
+    if (grupos.length) h += '<h2 class="sub-t">Series por zona</h2><p class="tenue chico" style="margin:-6px 2px 10px">Últimas 4 semanas, sin contar calentamiento.</p><div class="tarjeta zonas">' +
+      grupos.map((g, i) => '<div class="zona"><span>' + esc(g.nombre) + '</span><span class="z-pista"><i style="width:' + Math.max(3, Math.round(100 * g.n / maxG)) + '%;animation-delay:' + (i * 40) + 'ms"></i></span><b>' + g.n + '</b></div>').join('') + '</div>';
+    if (marcas.length) h += '<h2 class="sub-t">Mejores marcas del mes</h2><div class="tarjeta lista-ej">' + marcas.map(m => '<div class="fila"><span class="cuerpo"><b>' + esc(m.nombre) + '</b><span>' + P.corta(m.fecha) + ' · antes ' + P.fmt(m.antes) + ' ' + m.u + '</span></span><span class="hechas todas">' + P.fmt(m.peso) + ' ' + m.u + '</span></div>').join('') + '</div>';
+    h += '<p class="tenue chico" style="margin-top:16px">El avance de cada ejercicio está dentro del ejercicio, en "Progreso del ejercicio".</p>';
+    return { cab: '<h1>Progreso</h1>', html: h, tabs: true };
   }
 
   // ---------- Calendario ----------
@@ -653,7 +736,25 @@
 
   // ---------- Acciones ----------
   const acciones = {
-    tab(el) { ui.tab = el.dataset.v; ui.dia = null; ui.verDia = null; ui.ej = null; render(); },
+    tab(el) {
+      const antes = ui.ej ? -1 : posTab(ui.tab), v = el.dataset.v, igual = !ui.ej && !ui.dia && v === ui.tab;
+      ui.tab = v; ui.dia = null; ui.verDia = null; ui.ej = null;
+      render(false, igual ? 'fade' : posTab(v) >= antes ? 'der' : 'izq');
+    },
+    // Al tocar una columna o un punto de una gráfica, arriba se lee su valor (sin redibujar la pantalla).
+    graf(el) {
+      const g = el.closest('.graf'); if (!g) return;
+      g.querySelectorAll('.g-col.sel').forEach(c => c.classList.remove('sel')); el.classList.add('sel');
+      g.querySelector('.g-n').textContent = el.dataset.n; g.querySelector('.g-u').textContent = el.dataset.u; g.querySelector('.g-t').textContent = el.dataset.t;
+    },
+    'pg-met'(el) { ui.pg.met = el.dataset.v; render(true); },
+    'pg-modo'(el) { ui.pg.modo = el.dataset.v; render(true); },
+    'pe-met'(el) { const y = hoja.firstChild.scrollTop; ui.pe.met = el.dataset.v; hojaProgreso(ui.pe.id); hoja.firstChild.style.animation = 'none'; hoja.firstChild.scrollTop = y; },
+    'sug-usar'(el) {
+      const it = itemActual(), v = el.dataset.v;
+      it.series.forEach(x => { if (x.tipo !== 'c' && (!x.peso || P.num(x.peso) < P.num(v))) x.peso = v; });
+      S.tocar('routine'); render(true); toast('Peso puesto en ' + v + ' ' + uni(it));
+    },
     cerrar() { cerrar(); },
     confirmar() { const f = ui.alConfirmar; cerrar(); if (f) f(); },
 
@@ -685,7 +786,7 @@
       let i = ui.enc.i - 1;
       while (i >= 0 && !aplica(i)) i--;
       if (i < 0) ui.enc = null; else ui.enc.i = i;
-      render();
+      render(false, 'izq');
     },
     'enc-uno'(el) { const p = PREG[ui.enc.i]; ui.enc.r[p.k] = p.k === 'minutos' ? +el.dataset.v : el.dataset.v; encAvanza(); },
     'enc-dia'(el) { const d = +el.dataset.v, l = ui.enc.r.dias, i = l.indexOf(d); if (i >= 0) l.splice(i, 1); else l.push(d); render(true); },
@@ -714,19 +815,20 @@
 
     // Hoy y entrenamiento
     'hoy-dia'(el) { ui.verDia = +el.dataset.v; render(); },
-    'hoy-editar'(el) { ui.tab = 'rutina'; ui.dia = +el.dataset.v; render(); },
+    'hoy-editar'(el) { ui.tab = 'rutina'; ui.dia = +el.dataset.v; render(false, 'der'); },
     'ent-empezar'(el) {
       const d = +el.dataset.v; sesion(true, d);
-      if (!ui.ej) ui.ej = { dia: d, i: 0, editar: false };
-      render(true);
+      const abre = !ui.ej;
+      if (abre) ui.ej = { dia: d, i: 0, editar: false };
+      render(!abre, 'der');
     },
     'ent-terminar'() { confirmar('¿Terminar el entrenamiento?', 'Se guardan en el calendario las series que marcaste.', 'Guardar y terminar', terminar); },
 
     // Pantalla de un ejercicio
-    'ej-abrir'(el) { ui.ej = { dia: ui.verDia || S.diaSemana(), i: +el.dataset.v, editar: false }; render(); },
-    'ej-abrir-ed'(el) { ui.ej = { dia: ui.dia, i: +el.dataset.v, editar: true, salir: true }; ui.ej.copia = copiaItem(); render(); },
-    'ej-volver'() { ui.ej = null; render(); },
-    'ej-mover'(el) { const n = st().routine.dias[ui.ej.dia].items.length, i = ui.ej.i + (+el.dataset.v); if (i >= 0 && i < n) { ui.ej.i = i; ui.ej.rueda = false; render(); } },
+    'ej-abrir'(el) { ui.ej = { dia: ui.verDia || S.diaSemana(), i: +el.dataset.v, editar: false }; render(false, 'der'); },
+    'ej-abrir-ed'(el) { ui.ej = { dia: ui.dia, i: +el.dataset.v, editar: true, salir: true }; ui.ej.copia = copiaItem(); render(false, 'der'); },
+    'ej-volver'() { ui.ej = null; render(false, 'izq'); },
+    'ej-mover'(el) { const n = st().routine.dias[ui.ej.dia].items.length, i = ui.ej.i + (+el.dataset.v); if (i >= 0 && i < n) { ui.ej.i = i; ui.ej.rueda = false; render(false, +el.dataset.v > 0 ? 'aba' : 'arr'); } },
     'ej-menu'() {
       const m = document.createElement('div');
       m.id = 'menu'; m.innerHTML = '<div class="menu" role="menu">' +
@@ -750,7 +852,7 @@
       const it = itemActual(), i = +el.dataset.v;
       if (ui.ej.editar) { it.series[i].tipo = it.series[i].tipo === 'c' ? 'n' : 'c'; S.tocar('routine'); render(true); return; }
       const a = sesion(true, ui.ej.dia), h = a.hechos[it.uid] || (a.hechos[it.uid] = []);
-      h[i] = !h[i]; S.guardar(); render(true);
+      h[i] = !h[i]; S.guardar(); ui.pop = h[i] ? i : null; render(true);
       if (h[i] && st().settings.autoDescanso && it.rest > 0) iniciarTimer(it.rest, 'Sigue: ' + S.ejercicio(it.ex).nombre);
     },
     'se-agregar'() {
@@ -823,8 +925,8 @@
     },
 
     // Rutina
-    'rut-dia'(el) { ui.dia = +el.dataset.v; render(); },
-    'rut-volver'() { ui.dia = null; render(); },
+    'rut-dia'(el) { ui.dia = +el.dataset.v; render(false, 'der'); },
+    'rut-volver'() { ui.dia = null; render(false, 'izq'); },
     'rut-descanso'() { confirmar('¿Dejar ' + DIAS[ui.dia - 1].toLowerCase() + ' como descanso?', 'Se quitan los ejercicios de este día.', 'Dejar como descanso', () => { st().routine.dias[ui.dia] = { nombre: 'Descanso', items: [] }; S.tocar('routine'); render(); }, true); },
     'rut-cambiar'() {
       abrir(cabHoja('Intercambiar ' + DIAS[ui.dia - 1].toLowerCase() + ' con') + '<div class="lista">' + DIAS.map((n, i) => i + 1 === ui.dia ? '' : '<button class="fila" data-a="rut-cambio" data-v="' + (i + 1) + '"><span class="cuerpo"><b>' + n + '</b><span>' + esc(st().routine.dias[i + 1].items.length ? st().routine.dias[i + 1].nombre : 'Descanso') + '</span></span></button>').join('') + '</div>');
@@ -860,7 +962,7 @@
     'ej-restaurar'(el) { delete st().custom.cambios[el.dataset.id]; S.tocar('custom'); cerrar(); render(true); toast('Ejercicio restaurado'); },
 
     // Calendario
-    'cal-mes'(el) { const h = new Date(), m = ui.mes || { y: h.getFullYear(), m: h.getMonth() }, d = new Date(m.y, m.m + (+el.dataset.v), 1); ui.mes = { y: d.getFullYear(), m: d.getMonth() }; render(); },
+    'cal-mes'(el) { const h = new Date(), m = ui.mes || { y: h.getFullYear(), m: h.getMonth() }, d = new Date(m.y, m.m + (+el.dataset.v), 1); ui.mes = { y: d.getFullYear(), m: d.getMonth() }; render(false, +el.dataset.v > 0 ? 'der' : 'izq'); },
     'cal-dia'(el) { hojaFecha(el.dataset.v); },
     'cal-borrar'(el) { const f = el.dataset.v; confirmar('¿Marcar como no entrenado?', 'Se quita la marca de ese día y las series que registraste ahí.', 'Quitar la marca', () => { st().logs[f] = { fecha: f, borrado: true, updatedAt: Date.now() }; S.tocar('logs'); render(true); toast('Día desmarcado'); }, true); },
     'cal-marcar'(el) {
@@ -964,6 +1066,9 @@
     }).catch(e => console.warn('Sin modo offline:', e));
   }
   render();
+  // Pantalla de carga: se queda un momento y se va con una transición.
+  const carga = $('#carga');
+  if (carga) setTimeout(() => { carga.classList.add('fuera'); animar(vista, 'fade'); setTimeout(() => carga.remove(), 450); }, 1100);
   if (corriendo()) { if (st().timer.fin > Date.now()) tickT = setInterval(tick, 200); else { st().timer.fin = 0; S.guardar(); } }
   if (vuelta) alVolverDeGoogle(vuelta); else automatico();
 })();

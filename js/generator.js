@@ -317,5 +317,5 @@
     return { updatedAt: Date.now(), dias };
   }
 
-  G.Gen = { DIAS, OBJ, opciones, construir, dosis, minutosDia, minutosItem, uid, imc, elegirDias, IDEAL_DIAS, idealMin, nuevoItem, normalizar };
+  G.Gen = { DIAS, OBJ, EQUIPO, NIVEL_MAX, opciones, construir, dosis, minutosDia, minutosItem, uid, imc, elegirDias, IDEAL_DIAS, idealMin, nuevoItem, normalizar };
 })();
