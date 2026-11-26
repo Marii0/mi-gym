@@ -3,7 +3,7 @@
    - Las fotos se guardan aparte ("gym-img-v1") para no volver a bajarlas en cada actualización.
    IMPORTANTE: cuando cambies cualquier archivo de la app, sube el número de VERSION
    para que los teléfonos descarguen la versión nueva. */
-const VERSION = 'v8';
+const VERSION = 'v9';
 const APP = 'gym-app-' + VERSION;
 const FOTOS = 'gym-img-v1';
 const ARCHIVOS = [
