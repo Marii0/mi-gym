@@ -73,10 +73,30 @@
     return ({ hoy: vHoy, rutina: ui.dia ? vDia : vRutina, cal: vCalendario, prog: vProgreso, ajustes: vAjustes })[ui.tab]();
   }
   // Al cambiar de pantalla, el contenido entra con un movimiento corto: 'der', 'izq', 'arr', 'aba' o 'fade'.
-  const ANIMS = ['a-der', 'a-izq', 'a-arr', 'a-aba', 'a-fade'];
+  const ANIMS = ['a-der', 'a-izq', 'a-arr', 'a-aba', 'a-fade', 'a-tder', 'a-tizq', 'a-cab'];
+  const quieto = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   function animar(el, tipo) { ANIMS.forEach(c => el.classList.remove(c)); void el.offsetWidth; el.classList.add('a-' + tipo); }
+  // Copia de la pantalla que se va: se queda un instante debajo de la nueva para que el cambio no sea un corte.
+  function fantasma(tipo, y) {
+    if (quieto) return;
+    app.querySelectorAll('.fantasma').forEach(n => n.remove());
+    const f = vista.cloneNode(true);
+    f.removeAttribute('id'); f.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+    f.className = 'fantasma f-' + tipo + (vista.classList.contains('sin-cab') ? ' sin-cab' : ''); f.setAttribute('aria-hidden', 'true');
+    f.style.top = vista.offsetTop + 'px'; f.style.height = vista.offsetHeight + 'px';
+    vista.after(f); f.scrollTop = y;
+    setTimeout(() => f.remove(), 420);
+  }
+  // Vibración corta del teléfono (solo en la app instalada).
+  function toque(tipo) {
+    try {
+      const H = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Haptics; if (!H) return;
+      if (tipo === 'listo') H.notification({ type: 'SUCCESS' }); else if (tipo === 'sel') H.selectionChanged(); else H.impact({ style: tipo === 'fuerte' ? 'MEDIUM' : 'LIGHT' });
+    } catch (e) { /* sin vibración */ }
+  }
   function render(conservar, anim) {
     const y = vista.scrollTop, p = pantalla();
+    if (!conservar && /^(der|izq|arr|aba)$/.test(anim || '')) fantasma(anim, y);
     cab.innerHTML = p.cab || ''; cab.hidden = !p.cab;
     vista.innerHTML = p.html;
     pie.innerHTML = p.pie || ''; pie.hidden = !p.pie;
@@ -85,7 +105,7 @@
     vista.classList.toggle('sin-cab', !p.cab);
     if (p.tabs) dibujarTabs();
     vista.scrollTop = conservar ? y : 0;
-    if (!conservar) { animar(vista, anim || 'fade'); if (p.cab) animar(cab, 'fade'); if (p.pie) animar(pie, 'fade'); }
+    if (!conservar) { animar(vista, anim || 'fade'); if (p.cab) animar(cab, 'cab'); if (p.pie) animar(pie, 'fade'); }
     ui.pop = null;
     if (p.tabs && ui.tab === 'ajustes') contarFotos();
     if (ui.ej) { prepararRueda(); pintarTimer(); }
@@ -312,25 +332,26 @@
     const e = S.ejercicio(it.ex), ed = x.editar, cardio = e.tipo === 'k', a = st().active;
     let h = '<section class="ej' + (ed ? ' editando' : '') + '"><div class="ej-img">' + fotoGrande(e) + G.Musculos.figura(e) + '</div>' +
       '<div class="ej-titulo"><h1>' + esc(e.nombre) + '</h1><button class="info" data-a="ej-info" aria-label="Cómo se hace">i</button></div>';
-    h += '<h2 class="sub-t">Series</h2><div class="tarjeta' + (cardio ? ' sin-peso' : '') + '"><div class="st-cab"><span></span><span>' + (cardio ? 'Tiempo' : 'Repeticiones') + '</span>' + (cardio ? '<span></span>' : '<button class="st-uni" data-a="ej-unidad" aria-label="Cambiar entre libras y kilos">Peso (<b>' + uni(it) + '</b>)</button>') + '</div>';
+    h += '<h2 class="sub-t">Series</h2><div class="tarjeta' + (cardio ? ' sin-peso' : '') + '"><div class="st-cab"><span></span><span>' + (cardio ? 'Tiempo' : 'Repeticiones') + '</span>' + (cardio ? '<span></span>' : '<button class="st-uni" data-a="ej-unidad" aria-label="Cambiar entre libras y kilos">Peso (<b>' + uni(it) + '</b>)</button>') + (ed ? '<span></span>' : '') + '</div>';
     h += it.series.map((se, i) => {
       const ok = hecho(it.uid, i), texto = !/^\d*$/.test(se.reps || '');
-      return '<div class="st-fila' + (ok && !ed ? ' hecha' : '') + (se.tipo === 'c' ? ' cal' : '') + '"><span class="st-izq">' +
+      return '<div class="st-fila' + (ok && !ed ? ' hecha' : '') + (se.tipo === 'c' ? ' cal' : '') + '" data-fila="' + i + '"><span class="st-izq">' +
         (ed ? '<button class="menos" data-a="se-quitar" data-v="' + i + '" aria-label="Quitar serie">−</button>' : '') +
         '<button class="circ' + (se.tipo === 'c' ? ' cal' : '') + (ok && !ed ? ' ok' : '') + (ui.pop === i ? ' pop' : '') + '" data-a="se-circ" data-v="' + i + '" aria-label="' + (ed ? 'Cambiar tipo de serie' : 'Marcar serie') + '">' + (se.tipo === 'c' ? 'C' : numeroSerie(it.series, i)) + '</button></span>' +
-        '<input class="num' + (texto && String(se.reps).length > 7 ? ' txt' : '') + '" data-c="se-reps" data-v="' + i + '" value="' + esc(se.reps) + '" ' + (texto ? '' : 'inputmode="numeric" pattern="[0-9]*"') + ' aria-label="Repeticiones">' +
-        (cardio ? '<span></span>' : '<input class="num" data-c="se-peso" data-v="' + i + '" value="' + esc(se.peso) + '" inputmode="decimal" placeholder="–" aria-label="Peso">') + '</div>';
+        '<input class="num' + (texto && String(se.reps).length > 7 ? ' txt' : '') + '" data-c="se-reps" data-v="' + i + '" value="' + esc(se.reps) + '" ' + (texto ? '' : 'inputmode="none" data-tec="1"') + ' aria-label="Repeticiones">' +
+        (cardio ? '<span></span>' : '<input class="num" data-c="se-peso" data-v="' + i + '" value="' + esc(se.peso) + '" inputmode="none" data-tec="1" placeholder="–" aria-label="Peso">') +
+        (ed ? '<button class="asa" data-arr="serie" aria-label="Mantén y arrastra para cambiar el orden"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14M5 12h14M5 16h14"/></svg></button>' : '') + '</div>';
     }).join('');
     if (ed) h += '<button class="st-agregar" data-a="se-agregar"><span>+</span>Agregar nueva serie</button>' +
-      '<p class="tenue chico st-nota">Toca el círculo de una serie para marcarla como calentamiento (C) o normal.</p>';
+      '<p class="tenue chico st-nota">Toca el círculo para marcar una serie como calentamiento (C). Arrastra las rayitas para cambiar el orden.</p>';
     h += '<div class="st-desc" id="t-fila"><span>Descanso</span><button class="t-reloj' + (x.rueda ? ' abierta' : '') + '" id="t-reloj" data-a="t-rueda" aria-label="Cambiar el tiempo de descanso">' + reloj(it.rest) + '</button>' +
-      (ed ? '<span class="t-hueco"></span>' : '<button class="pildora suave" id="t-btn" data-a="t-toggle">Iniciar</button>') + '</div>' + (x.rueda ? rueda(it.rest) : '') + '</div>';
+      (ed ? '<span class="t-hueco"></span><span></span>' : '<button class="pildora suave" id="t-btn" data-a="t-toggle">Iniciar</button>') + '</div>' + (x.rueda ? rueda(it.rest) : '') + '</div>';
     if (!ed && !cardio) h += filaSugerencia(it, e);
     h += '<h2 class="sub-t">Notas</h2><textarea class="notas" data-c="ej-nota" maxlength="300" placeholder="Por ejemplo: asiento en la posición 4, 2 repeticiones de reserva">' + esc(it.nota || '') + '</textarea>';
     const ico = d => '<span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true">' + d + '</svg></span>';
     if (ed) h += '<button class="fila-liga" data-a="it-cambiar">' + ico('<path d="M7 9h11l-3-3M17 15H6l3 3"/>') + '<span>Reemplazar ejercicio</span></button>' +
       '<button class="fila-liga" data-a="ej-editar" data-id="' + esc(it.ex) + '">' + ico('<path d="M5 19l1-4L16 5l3 3L9 18z"/>') + '<span>Cambiar nombre, tips o imagen</span></button>' +
-      '<button class="fila-liga rojo" data-a="it-quitar">' + ico('<path d="M6 7h12M9 7V5h6v2M8 7l1 12h6l1-12"/>') + '<span>Quitar de este día</span></button>';
+      '<button class="quitar-ej" data-a="it-quitar">Quitar ejercicio de este día</button>';
     else h += '<button class="fila-liga" data-a="ej-progreso">' + ico('<path d="M5 16l4-4 3 3 6-7M14 8h4v4"/>') + '<span>Progreso del ejercicio</span><span class="chev">›</span></button>' +
       '<button class="fila-liga" data-a="it-cambiar">' + ico('<path d="M7 9h11l-3-3M17 15H6l3 3"/>') + '<span>Reemplazar por otro ejercicio</span><span class="chev">›</span></button>';
     h += '</section>';
@@ -401,8 +422,8 @@
     const d = st().routine.dias[ui.dia];
     let h = '<label class="campo" style="margin-top:0"><span>Nombre de la sesión</span><input data-c="dia-nombre" maxlength="50" value="' + esc(d.items.length ? d.nombre : '') + '" placeholder="Descanso"></label>';
     if (d.items.length) {
-      h += '<p class="tenue chico" style="margin:12px 0 6px">' + d.items.length + ' ejercicios, unos ' + Gen.minutosDia(d.items) + ' min. Toca uno para cambiar sus series.</p><div class="tarjeta lista-ej">' +
-        d.items.map((it, i) => '<div class="fila"><span class="orden"><button data-a="it-mover" data-v="' + i + '" data-d="-1" aria-label="Subir"' + (i === 0 ? ' disabled' : '') + '>▲</button><button data-a="it-mover" data-v="' + i + '" data-d="1" aria-label="Bajar"' + (i === d.items.length - 1 ? ' disabled' : '') + '>▼</button></span>' + filaItem(it, 'ej-abrir-ed', i) + '</div>').join('') + '</div>';
+      h += '<p class="tenue chico" style="margin:12px 0 6px">' + d.items.length + ' ejercicios, unos ' + Gen.minutosDia(d.items) + ' min. Toca uno para cambiar sus series; arrastra las rayitas para ordenarlos.</p><div class="tarjeta lista-ej">' +
+        d.items.map((it, i) => '<div class="fila" data-fila="' + i + '">' + filaItem(it, 'ej-abrir-ed', i) + '<button class="asa" data-arr="ej" aria-label="Mantén y arrastra para cambiar el orden"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14M5 12h14M5 16h14"/></svg></button>' + '</div>').join('') + '</div>';
     } else h += '<p class="vacio">Este día es de descanso. Agrega un ejercicio para convertirlo en día de entrenamiento.</p>';
     h += '<div class="pila" style="margin-top:16px"><button class="btn" data-a="rut-cambiar">Intercambiar con otro día</button>' + (d.items.length ? '<button class="btn peligro" data-a="rut-descanso">Dejar como día de descanso</button>' : '') + '</div>';
     return {
@@ -739,7 +760,10 @@
     tab(el) {
       const antes = ui.ej ? -1 : posTab(ui.tab), v = el.dataset.v, igual = !ui.ej && !ui.dia && v === ui.tab;
       ui.tab = v; ui.dia = null; ui.verDia = null; ui.ej = null;
-      render(false, igual ? 'fade' : posTab(v) >= antes ? 'der' : 'izq');
+      render(false, igual ? 'fade' : posTab(v) >= antes ? 'tder' : 'tizq');
+      const ind = tabs.querySelector('.ind');
+      if (!igual && ind.animate && !quieto) ind.animate([{ scale: '1 1' }, { scale: '1.22 .86', offset: .45 }, { scale: '1 1' }], { duration: 340, easing: 'ease-out' });
+      toque('sel');
     },
     // Al tocar una columna o un punto de una gráfica, arriba se lee su valor (sin redibujar la pantalla).
     graf(el) {
@@ -852,7 +876,7 @@
       const it = itemActual(), i = +el.dataset.v;
       if (ui.ej.editar) { it.series[i].tipo = it.series[i].tipo === 'c' ? 'n' : 'c'; S.tocar('routine'); render(true); return; }
       const a = sesion(true, ui.ej.dia), h = a.hechos[it.uid] || (a.hechos[it.uid] = []);
-      h[i] = !h[i]; S.guardar(); ui.pop = h[i] ? i : null; render(true);
+      h[i] = !h[i]; S.guardar(); ui.pop = h[i] ? i : null; render(true); toque(h[i] ? 'fuerte' : 'suave');
       if (h[i] && st().settings.autoDescanso && it.rest > 0) iniciarTimer(it.rest, 'Sigue: ' + S.ejercicio(it.ex).nombre);
     },
     'se-agregar'() {
@@ -1009,6 +1033,121 @@
     else if (c === 'dia-nombre') { const d = st().routine.dias[ui.dia]; if (d.items.length) { d.nombre = el.value.trim() || 'Entrenamiento'; S.tocar('routine'); } }
     else if (c === 'se-reps' || c === 'se-peso' || c === 'ej-nota') S.tocar('routine');
   });
+  // ---------- Teclado propio para repeticiones y peso (como el de la app de referencia) ----------
+  const tec = document.createElement('div'); tec.id = 'tec'; tec.hidden = true;
+  tec.innerHTML = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map(n => '<button data-k="' + n + '" style="grid-area:k' + n + '">' + n + '</button>').join('') +
+    '<button data-k="oc" style="grid-area:oc" aria-label="Cerrar teclado"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>' +
+    '<span class="pm" style="grid-area:pm"><button data-k="-" aria-label="Restar">−</button><button data-k="+" aria-label="Sumar">+</button></span>' +
+    '<button data-k="." style="grid-area:pt" aria-label="Punto decimal">.</button>' +
+    '<button data-k="br" style="grid-area:br" aria-label="Borrar"><svg viewBox="0 0 24 24"><path d="M9 6h10a1 1 0 011 1v10a1 1 0 01-1 1H9l-5-6zM12 10l4 4M16 10l-4 4"/></svg></button>' +
+    '<button data-k="sg" class="sig" style="grid-area:sg" aria-label="Siguiente"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>';
+  app.appendChild(tec);
+  let campo = null, fresco = false, sucio = false;
+  function quitarTodas() { vista.querySelectorAll('.st-todas').forEach(n => n.remove()); }
+  // Debajo de la serie que se está cambiando: un botón para poner ese mismo número en todas.
+  function ponerTodas(el) {
+    quitarTodas();
+    const it = itemActual(), fila = el.closest('.st-fila');
+    if (!it || !fila || it.series.length < 2 || !el.dataset.c) return;
+    const d = document.createElement('div'); d.className = 'st-todas';
+    d.innerHTML = '<button data-todas="1">Cambiar todas las series</button>';
+    fila.after(d);
+  }
+  function aplicarTodas() {
+    const el = campo || document.activeElement, it = itemActual();
+    if (!it || !el || !el.dataset || !/^se-(reps|peso)$/.test(el.dataset.c || '')) return;
+    const k = el.dataset.c === 'se-peso' ? 'peso' : 'reps', v = el.value.trim().replace(',', '.'), tipo = it.series[+el.dataset.v].tipo === 'c';
+    it.series.forEach((se, i) => {
+      if ((se.tipo === 'c') !== tipo) return;
+      se[k] = v;
+      const o = vista.querySelector('input[data-c="' + el.dataset.c + '"][data-v="' + i + '"]');
+      if (o && o !== el) { o.value = v; o.classList.remove('cambia'); void o.offsetWidth; o.classList.add('cambia'); }
+    });
+    S.tocar('routine'); toque('fuerte'); fresco = true;
+  }
+  function tecAbrir(el) {
+    campo = el; fresco = true; tec.hidden = false; app.classList.add('con-tec');
+    tec.querySelector('[data-k="."]').disabled = el.dataset.c !== 'se-peso';
+    setTimeout(() => { if (campo === el) el.scrollIntoView({ block: 'center', behavior: quieto ? 'auto' : 'smooth' }); }, 80);
+  }
+  function tecCerrar() { campo = null; tec.hidden = true; app.classList.remove('con-tec'); }
+  function tecla(k) {
+    const el = campo; if (!el) return;
+    let v = el.value;
+    if (k === 'oc') { el.blur(); return; }
+    if (k === 'sg') { const l = [...vista.querySelectorAll('input.num')], n = l[l.indexOf(el) + 1]; if (n) n.focus(); else el.blur(); toque('sel'); return; }
+    if (k === 'br') v = fresco ? '' : v.slice(0, -1);
+    else if (k === '+' || k === '-') {
+      const paso = el.dataset.c === 'se-peso' ? (uni(itemActual()) === 'kg' ? 2.5 : 5) : 1;
+      v = String(Math.round(Math.max(0, (parseFloat(v) || 0) + (k === '+' ? paso : -paso)) * 100) / 100);
+    } else if (k === '.') { if (fresco || !v) v = '0.'; else if (v.indexOf('.') < 0) v += '.'; else return; }
+    else { v = fresco || v === '0' ? k : v + k; if (v.length > 6) return; }
+    fresco = false; sucio = true; el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true })); toque('suave');
+  }
+  // pointerdown + preventDefault: la tecla responde al instante y el número no pierde el foco.
+  tec.addEventListener('pointerdown', ev => { ev.preventDefault(); const b = ev.target.closest('[data-k]'); if (b && !b.disabled) { b.classList.remove('pulso'); void b.offsetWidth; b.classList.add('pulso'); tecla(b.dataset.k); } });
+  tec.addEventListener('mousedown', ev => ev.preventDefault());
+  document.addEventListener('pointerdown', ev => { const b = ev.target.closest && ev.target.closest('[data-todas]'); if (b) { ev.preventDefault(); aplicarTodas(); } });
+  document.addEventListener('mousedown', ev => { if (ev.target.closest && ev.target.closest('[data-todas]')) ev.preventDefault(); });
+  document.addEventListener('focusin', ev => {
+    const el = ev.target;
+    if (!el.classList || !el.classList.contains('num')) return;
+    ponerTodas(el);
+    if (el.dataset.tec) tecAbrir(el); else if (campo) tecCerrar();
+  });
+  document.addEventListener('focusout', ev => {
+    const el = ev.target;
+    if (!el.classList || !el.classList.contains('num')) return;
+    if (sucio) { sucio = false; el.dispatchEvent(new Event('change', { bubbles: true })); }
+    setTimeout(() => { const a = document.activeElement; if (!a || !a.classList || !a.classList.contains('num')) { quitarTodas(); if (campo) tecCerrar(); } }, 0);
+  });
+
+  // ---------- Arrastrar para cambiar el orden (series y ejercicios) ----------
+  let arr = null;
+  function moverArr(ev) {
+    if (!arr) return;
+    if (ev) arr.y = ev.clientY;
+    const dy = arr.y - arr.y0 + (vista.scrollTop - arr.s0), alto = arr.alto;
+    arr.fila.style.transform = 'translateY(' + dy + 'px) scale(1.02)';
+    const centro = arr.cy + dy; let a = arr.de;
+    arr.centros.forEach((c, i) => { if (i < arr.de && centro < c) a = Math.min(a, i); if (i > arr.de && centro > c) a = Math.max(a, i); });
+    if (a !== arr.a) { arr.a = a; toque('sel'); }
+    arr.filas.forEach((f, i) => { if (f !== arr.fila) f.style.transform = arr.de < a && i > arr.de && i <= a ? 'translateY(' + (-alto) + 'px)' : arr.de > a && i >= a && i < arr.de ? 'translateY(' + alto + 'px)' : ''; });
+  }
+  function bordeArr() {
+    if (!arr) return;
+    const r = vista.getBoundingClientRect(), v = arr.y < r.top + 70 ? -9 : arr.y > r.bottom - 70 ? 9 : 0;
+    if (v) { const y = vista.scrollTop; vista.scrollTop = y + v; if (vista.scrollTop !== y) moverArr(); }
+    arr.raf = requestAnimationFrame(bordeArr);
+  }
+  function soltarArr(cancelar) {
+    if (!arr) return;
+    const o = arr; arr = null; cancelAnimationFrame(o.raf);
+    o.cont.classList.remove('ordenando');
+    if (!cancelar && o.a !== o.de) {
+      const mueve = l => { l.splice(o.a, 0, l.splice(o.de, 1)[0]); };
+      if (o.tipo === 'serie') { const it = itemActual(), act = st().active; mueve(it.series); if (act && act.hechos[it.uid]) { const h = act.hechos[it.uid]; while (h.length < it.series.length) h.push(false); mueve(h); } }
+      else mueve(st().routine.dias[ui.dia].items);
+      S.tocar('routine'); toque('fuerte'); render(true);
+    } else { o.filas.forEach(f => { f.style.transform = ''; }); o.fila.classList.remove('arrastra'); }
+  }
+  document.addEventListener('pointerdown', ev => {
+    const asa = ev.target.closest && ev.target.closest('.asa'); if (!asa || arr) return;
+    const fila = asa.closest('[data-fila]'), cont = fila.parentNode, filas = [...cont.children].filter(n => n.hasAttribute('data-fila'));
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const rs = filas.map(f => f.getBoundingClientRect()), de = filas.indexOf(fila);
+    arr = { tipo: asa.dataset.arr, fila, cont, filas, de, a: de, y0: ev.clientY, y: ev.clientY, s0: vista.scrollTop, alto: rs[de].height, cy: rs[de].top + rs[de].height / 2, centros: rs.map(r => r.top + r.height / 2) };
+    cont.classList.add('ordenando'); fila.classList.add('arrastra');
+    try { asa.setPointerCapture(ev.pointerId); } catch (e) { /* no importa */ }
+    ev.preventDefault(); toque('fuerte'); arr.raf = requestAnimationFrame(bordeArr);
+  });
+  document.addEventListener('pointermove', ev => { if (arr) { ev.preventDefault(); moverArr(ev); } }, { passive: false });
+  document.addEventListener('pointerup', () => soltarArr(false));
+  document.addEventListener('pointercancel', () => soltarArr(true));
+  // Para que los botones respondan al dedo (estado :active) también en iPhone.
+  document.addEventListener('touchstart', () => {}, { passive: true });
+
   // Al tocar un número se selecciona completo, para escribir encima sin tener que borrar.
   let recien = null;
   document.addEventListener('focusin', ev => {
@@ -1022,6 +1161,8 @@
     if (ev.key === 'Enter' && ev.target.id === 'enc-texto') acciones['enc-sig']();
     if (ev.key === 'Enter' && ev.target.id === 'man-nombre') acciones['manual-ok']();
     if (ev.key === 'Enter' && ev.target.classList && ev.target.classList.contains('num')) ev.target.blur();
+    // Con teclado físico (computadora) los números se comportan igual que con el teclado propio.
+    if (campo && ev.target === campo && !ev.metaKey && !ev.ctrlKey && (/^[0-9.]$/.test(ev.key) || ev.key === 'Backspace')) { ev.preventDefault(); if (ev.key !== '.' || campo.dataset.c === 'se-peso') tecla(ev.key === 'Backspace' ? 'br' : ev.key); }
   });
   // Cuando sale el teclado, la app se encoge a lo que queda visible (en vez de que toda la ventana se mueva)
   // y se esconden el pie y las pestañas para dejar espacio.
