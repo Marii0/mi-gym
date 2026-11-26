@@ -17,11 +17,11 @@
       "screenshots": [],
       "versions": [
         {
-          "version": "1.2.0",
-          "date": "2026-11-25",
-          "localizedDescription": "Progreso con gráficas (general y por ejercicio), reemplazo de ejercicios con recomendados, peso sugerido, columnas alineadas con el cronómetro, pantalla de carga y transiciones.",
+          "version": "1.3.0",
+          "date": "2026-11-26",
+          "localizedDescription": "Teclado propio para repeticiones y peso, botón para cambiar todas las series, arrastrar para ordenar series y ejercicios, transiciones entre pantallas, respuesta de botones y vibración al tocar.",
           "downloadURL": "https://github.com/Marii0/mi-gym/releases/download/ios/MiGym.ipa",
-          "size": 5118806,
+          "size": 5146971,
           "minOSVersion": "14.0"
         }
       ],
