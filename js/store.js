@@ -11,7 +11,7 @@
       routine: null,                                   // { updatedAt, dias: { 1..7: { nombre, items[] } } }  1 = lunes
       custom: { updatedAt: 0, items: [], cambios: {} },// ejercicios propios y cambios a los del catálogo
       logs: {},                                        // 'AAAA-MM-DD': { fecha, nombre, min, items[], updatedAt, borrado? }
-      settings: { updatedAt: 0, sonido: true, enSilencio: false, cuenta: true, pantalla: true, unidad: 'lb', autoDescanso: true },
+      settings: { updatedAt: 0, sonido: true, enSilencio: false, cuenta: true, pantalla: true, unidad: 'lb', autoDescanso: true, tarjeta: true },
       active: null,                                    // entrenamiento en curso: { fecha, dia, nombre, inicio, hechos: { uid: [true, false...] } }
       timer: { fin: 0, total: 0 },                     // descanso en marcha
       sync: { pendiente: false, ultima: 0, carpeta: null, archivo: null, correo: null, conectado: false }

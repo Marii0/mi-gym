@@ -242,10 +242,20 @@
   // ---------- Descanso (va en la misma pantalla del ejercicio) ----------
   let tickT = null;
   function corriendo() { return st().timer.fin > 0; }
+  // Tarjeta del descanso en la pantalla de bloqueo del iPhone (app instalada, iOS 16.2 o más nuevo).
+  // iOS la quita sola cuando termina el descanso; con 0 segundos se quita de inmediato.
+  function tarjeta(seg) {
+    try {
+      const L = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Descanso; if (!L) return;
+      if (!seg || st().settings.tarjeta === false) { L.parar().catch(() => {}); return; }
+      const it = itemActual(), a = st().active, h = it && a && a.hechos[it.uid] ? a.hechos[it.uid] : [];
+      L.iniciar({ segundos: seg, nombre: it ? S.ejercicio(it.ex).nombre : 'Descanso', serie: h.filter(Boolean).length, total: it ? it.series.length : 0 }).catch(() => {});
+    } catch (e) { /* sin tarjeta */ }
+  }
   function iniciarTimer(seg, texto) {
     const t = st().timer;
     t.total = seg; t.fin = Date.now() + seg * 1000; S.guardar();
-    A.programar(seg, texto);
+    A.programar(seg, texto); tarjeta(seg);
     if (!tickT) tickT = setInterval(tick, 200);
     pintarTimer();
   }
@@ -254,6 +264,7 @@
     clearInterval(tickT); tickT = null;
     t.fin = 0; S.guardar();
     if (silencio) A.cancelar();
+    tarjeta(0);
     pintarTimer();
   }
   function tick() {
@@ -263,7 +274,7 @@
     if (ms > 0) { pintarTimer(); return; }
     // En la app nativa, si acabó hace rato, la notificación ya sonó: no repetir el pitido.
     const yaAviso = A.nativo && -ms > 2500;
-    clearInterval(tickT); tickT = null; t.fin = 0; S.guardar();
+    clearInterval(tickT); tickT = null; t.fin = 0; S.guardar(); tarjeta(0);
     if (yaAviso) A.cancelar();
     else if (!A.sonoATiempo()) A.ahora();
     else { A.quitarAviso(); if (navigator.vibrate) navigator.vibrate([200, 100, 200]); }
@@ -688,7 +699,8 @@
         '<section class="grupo"><h2>Rutina con IA</h2><p>' + (IA.listo() ? 'Conectada con ' + IA.PROVEEDORES[IA.config().proveedor].nombre + '.' : 'Opcional. Toca la estrellita en la pantalla Rutina para armar o ajustar tu semana con Gemini (gratis) o Claude.') + '</p><div style="margin-top:12px"><button class="btn" data-a="ia-config-aj">' + (IA.listo() ? 'Cambiar clave o servicio' : 'Configurar la IA') + '</button></div></section>' +
         '<section class="grupo"><h2>Google Drive</h2>' + drive + '</section>' +
         '<section class="grupo"><h2>Pitido del descanso</h2>' + interruptor('sonido', 'Sonar al terminar el descanso') + interruptor('cuenta', 'Avisar 3, 2, 1 antes') + interruptor('enSilencio', 'Sonar aunque el iPhone esté en silencio', 'Puede pausar tu música mientras suena') + '<div style="margin-top:8px"><button class="btn" data-a="aj-probar">Probar el pitido</button></div></section>' +
-        '<section class="grupo"><h2>Pantalla</h2>' + interruptor('pantalla', 'Mantener la pantalla encendida al entrenar', D.nativo ? 'Si bloqueas el iPhone, el aviso llega como notificación con sonido' : 'Con el iPhone bloqueado el pitido no puede sonar') + '</section>' +
+        '<section class="grupo"><h2>Pantalla</h2>' + interruptor('pantalla', 'Mantener la pantalla encendida al entrenar', D.nativo ? 'Si bloqueas el iPhone, el aviso llega como notificación con sonido' : 'Con el iPhone bloqueado el pitido no puede sonar') +
+          (D.nativo ? interruptor('tarjeta', 'Mostrar el descanso en la pantalla de bloqueo', 'Aparece debajo de lo que estés escuchando y se quita sola al terminar. Necesita iOS 16.2 o más nuevo') : '') + '</section>' +
         '<section class="grupo"><h2>Uso sin internet</h2><p id="aj-fotos">Revisando dibujos guardados…</p>' + (D.nativo ? '' : '<div style="margin-top:12px"><button class="btn" data-a="aj-fotos">Descargar todos los dibujos</button></div>') + '</section>' +
         '<section class="grupo"><h2>Créditos</h2><p>Dibujos de los ejercicios: Everkinetic (everkinetic.com), licencia CC BY-SA 4.0, adaptados a fondo oscuro. Los de cardio son propios de esta app.</p></section>' +
         '<section class="grupo"><h2>Tus datos</h2><div class="pila"><button class="btn" data-a="aj-exportar">Descargar una copia</button><button class="btn peligro" data-a="aj-borrar">Borrar todo de este teléfono</button></div></section></div>',
@@ -1206,6 +1218,7 @@
       setTimeout(() => { if (!localStorage.getItem('gym.fotos')) bajarFotos(false); }, 2500);
     }).catch(e => console.warn('Sin modo offline:', e));
   }
+  if (st().settings.tarjeta === undefined) st().settings.tarjeta = true;
   render();
   // Pantalla de carga: se queda un momento y se va con una transición.
   const carga = $('#carga');
