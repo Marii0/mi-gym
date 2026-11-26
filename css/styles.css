@@ -24,20 +24,27 @@ h3 { font-size: 1rem; font-weight: 600; }
 :focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; }
 
 /* ---------- Armazón ---------- */
-#app { max-width: 560px; margin: 0 auto; height: 100%; height: var(--alto, 100dvh); display: flex; flex-direction: column; overflow: hidden; }
+#app { position: relative; max-width: 560px; margin: 0 auto; height: 100%; height: var(--alto, 100dvh); display: flex; flex-direction: column; overflow: hidden; }
 #cab { flex: none; padding: calc(var(--arriba) + 10px) 18px 12px; }
-#vista { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 18px calc(var(--abajo) + 20px); }
+#vista { position: relative; z-index: 2; background: var(--fondo); flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 18px calc(var(--abajo) + 20px); }
 #vista.sin-cab { padding-top: calc(var(--arriba) + 20px); }
 #app.con-pie #vista, #app.con-tabs #vista, #app.teclado #vista { padding-bottom: 20px; }
 #pie { flex: none; padding: 8px 18px calc(var(--abajo) + 10px); display: flex; flex-direction: column; align-items: center; }
 #pie > * { width: 100%; }
 #app.con-tabs #pie { padding-bottom: 8px; }
 #pie:empty { display: none; }
-#app.teclado #pie, #app.teclado #tabs { display: none; }
+#app.teclado #pie, #app.teclado #tabs, #app.con-tec #pie, #app.con-tec #tabs { display: none; }
+#app.con-tec #vista { padding-bottom: 20px; }
 
 /* ---------- Botones ---------- */
 .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 52px; padding: 12px 20px; border: 0; border-radius: 999px; background: var(--panel2); font-weight: 600; cursor: pointer; text-align: center; }
-.btn:active, .pildora:active, .flota:active { transform: scale(.98); }
+.btn, .pildora, .flota, .redondo, .flechas button, .circ, .chip, .fila-liga, .info, .menos, .quitar-ej, .seg button, .ia-btn { transition: transform .2s cubic-bezier(.3, 1.6, .5, 1), background-color .2s, color .2s, box-shadow .2s, opacity .2s; }
+.btn:active, .pildora:active, .flota:active, .fila-liga:active, .quitar-ej:active { transform: scale(.955); }
+.redondo:active, .flechas button:active, .circ:active, .chip:active, .info:active, .menos:active { transform: scale(.88); }
+.fila-in { transition: background-color .2s, transform .2s; border-radius: 14px; }
+.fila-in:active { background: rgba(255, 255, 255, .06); transform: scale(.985); }
+.st-agregar { transition: filter .15s; }
+.st-agregar:active { filter: brightness(1.2); }
 .btn.primario { background: var(--acento); color: var(--sobre-acento); font-weight: 700; }
 .btn.peligro { background: rgba(240, 86, 74, .14); color: var(--rojo); }
 .btn[disabled] { opacity: .4; }
@@ -404,4 +411,58 @@ span.mini-foto { border-radius: 14px; background: var(--panel2); }
   .st-desc > span:first-child { font-size: 16px; }
   #tabs button { font-size: 10.5px; }
   #tabs { margin-left: 10px; margin-right: 10px; }
+}
+
+/* ---------- Cambio de pantalla tipo iPhone: la anterior se va mientras entra la nueva ---------- */
+.fantasma { position: absolute; left: 0; right: 0; z-index: 1; overflow: hidden; padding: 4px 18px 20px; pointer-events: none; }
+.fantasma.sin-cab { padding-top: calc(var(--arriba) + 20px); }
+.a-der { animation: p-der .4s cubic-bezier(.22, .9, .28, 1); box-shadow: -24px 0 40px rgba(0, 0, 0, .4); }
+.a-izq { animation: p-izq .4s cubic-bezier(.22, .9, .28, 1); }
+.a-tder { animation: a-der .26s cubic-bezier(.2, .8, .3, 1); }
+.a-tizq { animation: a-izq .26s cubic-bezier(.2, .8, .3, 1); }
+.a-cab { animation: a-cab .3s cubic-bezier(.2, .8, .3, 1); }
+@keyframes p-der { from { transform: translateX(100%); } }
+@keyframes p-izq { from { transform: translateX(-26%); opacity: .3; } }
+@keyframes a-cab { from { opacity: 0; transform: scale(.94); filter: blur(5px); } }
+.f-der { animation: f-der .4s cubic-bezier(.22, .9, .28, 1) forwards; }
+.f-izq { z-index: 3; background: var(--fondo); box-shadow: -24px 0 40px rgba(0, 0, 0, .4); animation: f-izq .4s cubic-bezier(.22, .9, .28, 1) forwards; }
+.f-aba { animation: f-aba .2s ease-in forwards; }
+.f-arr { animation: f-arr .2s ease-in forwards; }
+@keyframes f-der { to { transform: translateX(-26%); opacity: .25; } }
+@keyframes f-izq { to { transform: translateX(100%); } }
+@keyframes f-aba { to { transform: translateY(-26px); opacity: 0; } }
+@keyframes f-arr { to { transform: translateY(26px); opacity: 0; } }
+
+/* ---------- Teclado propio ---------- */
+#tec { flex: none; position: relative; z-index: 4; display: grid; grid-template-areas: "k1 k2 k3 oc" "k4 k5 k6 pm" "k7 k8 k9 sg" "pt k0 br sg"; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 10px 8px calc(var(--abajo) + 8px); background: #1B1D27; box-shadow: inset 0 1px 0 var(--linea); animation: tec-sube .28s cubic-bezier(.2, .9, .3, 1); }
+#tec[hidden] { display: none; }
+@keyframes tec-sube { from { transform: translateY(100%); } }
+#tec button { height: 52px; padding: 0; border: 0; border-radius: 13px; background: var(--panel2); color: var(--tiza); font-size: 1.6rem; font-weight: 400; display: grid; place-items: center; cursor: pointer; }
+#tec button:disabled { opacity: .22; }
+#tec svg { width: 27px; height: 27px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#tec .pm { display: grid; grid-template-columns: 1fr 1fr; border-radius: 13px; background: var(--panel2); overflow: hidden; }
+#tec .pm button { border-radius: 0; background: none; }
+#tec .sig { height: auto; background: #1E7BF2; color: #fff; }
+#tec .sig svg { width: 32px; height: 32px; stroke-width: 2.2; }
+#tec button.pulso { animation: tecla .22s ease-out; }
+@keyframes tecla { 0% { transform: scale(.92); filter: brightness(1.7); } }
+.st-todas { display: flex; justify-content: center; padding: 0 0 8px; animation: todas .26s cubic-bezier(.2, .9, .3, 1); }
+.st-todas button { min-height: 34px; padding: 6px 20px; border: 0; border-radius: 999px; background: var(--azul); color: #fff; font-size: .86rem; font-weight: 600; cursor: pointer; transition: transform .2s cubic-bezier(.3, 1.6, .5, 1); }
+.st-todas button:active { transform: scale(.94); }
+@keyframes todas { from { opacity: 0; transform: translateY(-8px) scale(.9); } }
+.num.cambia { animation: cambia .5s cubic-bezier(.3, 1.4, .5, 1); }
+@keyframes cambia { 0% { color: var(--acento); transform: scale(1.3); } }
+
+/* ---------- Editar series: columna extra para las rayitas de ordenar ---------- */
+.editando .st-cab, .editando .st-fila, .editando .st-desc { grid-template-columns: repeat(3, minmax(0, 1fr)) 34px; }
+.asa { flex: none; width: 34px; height: 46px; padding: 0; border: 0; background: none; color: var(--tenue); display: grid; place-items: center; cursor: grab; touch-action: none; }
+.asa svg { width: 27px; height: 27px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; pointer-events: none; }
+.lista-ej .fila { display: flex; align-items: center; gap: 4px; }
+.lista-ej .fila .fila-in { flex: 1; min-width: 0; }
+.ordenando [data-fila] { transition: transform .22s cubic-bezier(.2, .8, .3, 1); }
+.ordenando .arrastra { position: relative; z-index: 5; transition: none; border-radius: 18px; background: var(--panel2); box-shadow: 0 14px 34px rgba(0, 0, 0, .55); }
+.ordenando .st-todas { display: none; }
+.quitar-ej { width: 100%; min-height: 54px; margin-top: 22px; border: 0; border-radius: 999px; background: rgba(240, 86, 74, .15); color: var(--rojo); font-size: 1rem; font-weight: 600; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) {
+  #tec, #tec button.pulso, .st-todas, .num.cambia, .a-tder, .a-tizq, .a-cab { animation: none !important; }
 }
