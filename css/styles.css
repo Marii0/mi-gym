@@ -136,8 +136,8 @@ span.mini-foto { border-radius: 14px; background: var(--panel2); }
 
 /* ---------- Semana (pantalla Hoy) ---------- */
 .semana { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 0 0 16px; }
-.semana button { border: 0; background: none; padding: 7px 0; border-radius: 16px; display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: .8rem; font-weight: 600; color: var(--tenue); cursor: pointer; }
-.semana button.sel { background: var(--panel); color: var(--tiza); }
+.semana button { border: 0; background: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); padding: 7px 0; border-radius: 16px; display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: .8rem; font-weight: 600; color: var(--tenue); cursor: pointer; }
+.semana button.sel { background: var(--panel); color: var(--tiza); box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .85); }
 .marca { width: 18px; height: 18px; border-radius: 50%; border: 2px dashed transparent; }
 .marca.toca { border: 2px solid var(--panel2); }
 .marca.hecho { border: 0; background: var(--acento); }
@@ -193,7 +193,6 @@ span.mini-foto { border-radius: 14px; background: var(--panel2); }
 .num:focus { outline: none; background: rgba(255, 255, 255, .06); }
 .num::placeholder { color: var(--tenue); opacity: .55; }
 .num.txt { font-size: 14px; }
-.st-fila.hecha .num { color: var(--acento); }
 .circ.pop { animation: pop .32s cubic-bezier(.3, 1.6, .5, 1); }
 @keyframes pop { 0% { transform: scale(.7); } 60% { transform: scale(1.22); } }
 .st-sug { display: flex; align-items: center; gap: 12px; margin: 10px 0 0; padding: 10px 8px 10px 18px; border-radius: 24px; background: var(--panel); font-size: .86rem; color: var(--tenue); }
@@ -201,7 +200,6 @@ span.mini-foto { border-radius: 14px; background: var(--panel2); }
 .st-sug > span { flex: 1; min-width: 0; }
 .st-sug b { display: block; color: var(--tiza); font-size: 1rem; font-weight: 600; }
 .st-sug .pildora { min-width: 0; min-height: 40px; padding: 6px 18px; }
-.st-fila.hecha.cal .num { color: var(--ambar); }
 .menos { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: var(--rojo); color: #fff; font-size: 1.3rem; font-weight: 700; line-height: 1; cursor: pointer; }
 .st-agregar { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 54px; margin-top: 6px; border: 0; background: var(--azul); color: #fff; font-size: 1.05rem; font-weight: 500; cursor: pointer; }
 .st-agregar span { width: 26px; height: 26px; border: 1.5px solid #fff; border-radius: 50%; display: grid; place-items: center; font-size: 1.15rem; line-height: 1; }
@@ -215,14 +213,14 @@ span.mini-foto { border-radius: 14px; background: var(--panel2); }
 .st-desc.listo { animation: aviso 1.8s ease-out; }
 @keyframes aviso { 0%, 60% { background: rgba(181, 242, 61, .25); } }
 /* ruedita de minutos y segundos */
-.rueda { position: relative; display: flex; justify-content: center; align-items: center; gap: 6px; height: 190px; margin: 0 16px 8px; border-top: 1px solid var(--linea); }
-.rueda-banda { position: absolute; left: 50%; top: 50%; width: 230px; height: 38px; margin: -19px 0 0 -115px; border-radius: 999px; background: var(--panel2); }
-.rueda-col { position: relative; width: 96px; height: 190px; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; -webkit-mask-image: linear-gradient(transparent, #000 35%, #000 65%, transparent); mask-image: linear-gradient(transparent, #000 35%, #000 65%, transparent); }
+.rueda { position: relative; display: flex; justify-content: center; align-items: center; gap: 6px; height: 160px; margin: 0 16px 8px; border-top: 1px solid var(--linea); }
+.rueda-banda { position: absolute; left: 50%; top: 50%; width: 200px; height: 32px; margin: -16px 0 0 -100px; border-radius: 999px; background: var(--panel2); }
+.rueda-col { position: relative; width: 84px; height: 160px; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; -webkit-mask-image: linear-gradient(transparent, #000 35%, #000 65%, transparent); mask-image: linear-gradient(transparent, #000 35%, #000 65%, transparent); }
 .rueda-col::-webkit-scrollbar { display: none; }
-.rueda-col i { display: block; height: 76px; }
-.rueda-col button { display: block; width: 100%; height: 38px; padding: 0; border: 0; background: none; scroll-snap-align: center; font-size: 1.5rem; font-variant-numeric: tabular-nums; color: var(--tenue); cursor: pointer; }
+.rueda-col i { display: block; height: 64px; }
+.rueda-col button { display: block; width: 100%; height: 32px; padding: 0; border: 0; background: none; scroll-snap-align: center; font-size: 1.22rem; font-variant-numeric: tabular-nums; color: var(--tenue); cursor: pointer; }
 .rueda-col button.sel { color: var(--tiza); }
-.rueda-pts { position: relative; font-size: 1.5rem; color: var(--tenue); }
+.rueda-pts { position: relative; font-size: 1.22rem; color: var(--tenue); }
 .notas { display: block; width: 100%; min-height: 84px; padding: 14px 18px; border: 1.5px solid transparent; border-radius: 28px; background: var(--panel); font-size: 1rem; color: var(--tiza); resize: none; }
 .notas::placeholder { color: var(--tenue); opacity: .7; }
 .notas:focus { outline: none; border-color: rgba(181, 242, 61, .5); }
@@ -466,3 +464,28 @@ span.mini-foto { border-radius: 14px; background: var(--panel2); }
 @media (prefers-reduced-motion: reduce) {
   #tec, #tec button.pulso, .st-todas, .num.cambia, .a-tder, .a-tizq, .a-cab { animation: none !important; }
 }
+
+/* ---------- Ronda 1.5 ---------- */
+/* Fuera de "Editar" los números son solo de lectura; al tocarlos sale el botoncito "Editar". */
+button.num.ro { border: 0; background: none; padding: 0; cursor: pointer; }
+button.num.ro.vacio { color: var(--tenue); }
+.num:focus::placeholder { color: transparent; }
+.burbuja { position: absolute; z-index: 6; transform: translate(-50%, -100%); min-height: 36px; padding: 6px 16px; border: 0; border-radius: 12px; background: #F2F3F7; color: #14161F; font-size: .92rem; font-weight: 600; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); cursor: pointer; animation: burbuja .2s cubic-bezier(.3, 1.5, .5, 1); }
+.burbuja::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 12px; height: 12px; margin-left: -6px; background: inherit; transform: rotate(45deg); border-radius: 2px; }
+@keyframes burbuja { from { opacity: 0; transform: translate(-50%, -80%) scale(.8); } }
+/* Línea de avance de cada ejercicio en "Hoy": roja, amarilla o verde. */
+.lista-ej .fila { position: relative; }
+.avance-l { position: absolute; right: -9px; top: 16px; bottom: 16px; width: 4px; border-radius: 2px; }
+.avance-l.r { background: var(--rojo); }
+.avance-l.a { background: var(--ambar); }
+.avance-l.v { background: var(--acento); }
+.dos-pild { display: flex; gap: 8px; flex: none; }
+.dos-pild .pildora { min-width: 0; padding-left: 16px; padding-right: 16px; }
+#pie > .flota-dos { width: auto; display: flex; gap: 10px; }
+#pie > .flota-dos .flota { min-height: 54px; padding: 12px 22px; border: 0; border-radius: 999px; background: var(--panel2); color: #fff; font-size: 1.05rem; font-weight: 600; cursor: pointer; box-shadow: inset 0 0 0 1px var(--linea), 0 6px 22px rgba(0, 0, 0, .45); }
+#pie > .flota-dos .flota:first-child { color: var(--rojo); }
+.info.chica { width: 26px; height: 26px; font-size: .9rem; margin-right: 2px; }
+.notas.texto { min-height: 260px; border-radius: 22px; font-size: .92rem; line-height: 1.45; white-space: pre-wrap; }
+/* "Listo" propio sobre el teclado del iPhone (sin las flechitas de la barra de Apple). */
+#listo { display: none; position: absolute; right: 14px; bottom: 10px; z-index: 30; min-height: 40px; padding: 8px 20px; border: 0; border-radius: 999px; background: var(--acento); color: var(--sobre-acento); font-size: 1rem; font-weight: 700; box-shadow: 0 6px 20px rgba(0, 0, 0, .5); }
+#app.teclado #listo { display: block; }
