@@ -7,5 +7,10 @@
     "contentInset": "never",
     "scrollEnabled": false,
     "backgroundColor": "#14161F"
+  },
+  "plugins": {
+    "Keyboard": {
+      "resize": "none"
+    }
   }
 }
