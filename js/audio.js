@@ -8,9 +8,11 @@
   // suena aunque el iPhone esté bloqueado o la app esté en segundo plano.
   const NATIVO = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   const P = NATIVO ? window.Capacitor.Plugins : {};
-  function permiso() { if (NATIVO && P.LocalNotifications) P.LocalNotifications.requestPermissions().catch(() => {}); }
+  // En la app instalada el descanso lo lleva el iPhone (sonido, vibración y tarjeta): aquí ya no se programa nada.
+  const MOTOR = !!(NATIVO && P.Descanso);
+  function permiso() { if (MOTOR) return; if (NATIVO && P.LocalNotifications) P.LocalNotifications.requestPermissions().catch(() => {}); }
   function avisar(segundos, texto) {
-    if (!NATIVO || !P.LocalNotifications || !S.state.settings.sonido) return;
+    if (MOTOR || !NATIVO || !P.LocalNotifications || !S.state.settings.sonido) return;
     P.LocalNotifications.schedule({ notifications: [{
       id: 1, title: 'Descanso terminado', body: texto || 'Sigue con tu entrenamiento', sound: 'pitido.wav',
       schedule: { at: new Date(Date.now() + segundos * 1000 + 900), allowWhileIdle: true }
@@ -26,7 +28,7 @@
 
   // Hay que llamarla desde un toque del usuario (iOS no deja sonar nada sin eso).
   function preparar() {
-    if (!S.state.settings.sonido) return null;
+    if (MOTOR || !S.state.settings.sonido) return null;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     if (!ctx) ctx = new AC();
@@ -90,5 +92,5 @@
     } catch (e) { /* el sistema puede negarlo (batería baja) */ }
   }
 
-  G.Audio = { preparar, programar, cancelar, sonoATiempo, ahora, pantalla, permiso, quitarAviso, nativo: NATIVO };
+  G.Audio = { preparar, programar, cancelar, sonoATiempo, ahora, pantalla, permiso, quitarAviso, nativo: NATIVO, motor: MOTOR };
 })();

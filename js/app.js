@@ -214,6 +214,23 @@
     }
     return s.active;
   }
+  // Los ejercicios cambiados "solo por hoy" vuelven a ser los de siempre al terminar o cancelar.
+  function regresarTemporales(a) {
+    if (!a || !a.temp) return;
+    const s = st();
+    Object.keys(s.routine.dias).forEach(d => { const l = s.routine.dias[d].items; l.forEach((it, i) => {
+      if (!a.temp[it.uid]) return;
+      const o = JSON.parse(a.temp[it.uid]);
+      o.hist = [it.ex].concat(o.hist || []).filter((x, k, t) => x !== o.ex && t.indexOf(x) === k).slice(0, 6);
+      l[i] = o;
+    }); });
+    a.temp = null; S.tocar('routine');
+  }
+  function cancelarEntrenamiento() {
+    const s = st(), a = s.active; if (!a) return;
+    pararTimer(true); A.pantalla(false); regresarTemporales(a);
+    s.active = null; S.guardar(); ui.ej = null; ui.tab = 'hoy'; ui.verDia = null; render(); toast('Entrenamiento cancelado. No se guardó nada.');
+  }
   function hecho(uid, i) { const a = st().active; return !!(a && a.hechos[uid] && a.hechos[uid][i]); }
   function avance() {
     const a = st().active; let n = 0;
@@ -223,15 +240,18 @@
   function terminar() {
     const s = st(), a = s.active;
     if (!a) return;
-    const items = [];
+    const items = []; let seg = 0;
     Object.keys(s.routine.dias).forEach(d => s.routine.dias[d].items.forEach(it => {
       const h = a.hechos[it.uid] || [], sets = it.series.filter((x, i) => h[i]).map(x => ({ kg: x.peso || '', reps: x.reps || '', tipo: x.tipo }));
       if (sets.length) items.push({ ex: it.ex, nombre: S.ejercicio(it.ex).nombre, u: uni(it), sets });
+      // Minutos: solo cuentan los ejercicios con todas sus series hechas (tiempo estimado, con descansos).
+      if (sets.length && sets.length >= it.series.length) seg += Gen.minutosItem(it) * 60;
     }));
     pararTimer(true); A.pantalla(false);
+    regresarTemporales(a);
     s.active = null;
     if (!items.length) { S.guardar(); render(); toast('No marcaste ninguna serie'); return; }
-    const min = Math.max(1, Math.round((Date.now() - a.inicio) / 60000)), prev = registro(a.fecha);
+    const min = Math.round(seg / 60), prev = registro(a.fecha);
     s.logs[a.fecha] = { fecha: a.fecha, nombre: a.nombre, u: unidad(), min: (prev ? prev.min || 0 : 0) + min, items: (prev ? prev.items || [] : []).concat(items), updatedAt: Date.now() };
     S.tocar('logs'); ui.ej = null; ui.tab = 'hoy'; ui.verDia = null; render();
     const n = items.reduce((t, it) => t + it.sets.length, 0);
@@ -247,10 +267,22 @@
   function tarjeta(seg) {
     try {
       const L = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Descanso; if (!L) return;
-      if (!seg || st().settings.tarjeta === false) { L.parar().catch(() => {}); return; }
-      const it = itemActual(), a = st().active, h = it && a && a.hechos[it.uid] ? a.hechos[it.uid] : [];
-      L.iniciar({ segundos: seg, nombre: it ? S.ejercicio(it.ex).nombre : 'Descanso', serie: h.filter(Boolean).length, total: it ? it.series.length : 0 }).catch(() => {});
+      if (!seg) { L.parar().catch(() => {}); return; }
+      const it = itemActual(), a = st().active, h = it && a && a.hechos[it.uid] ? a.hechos[it.uid] : [], e = it ? S.ejercicio(it.ex) : null, f = e ? (S.fotos(e)[0] || '') : '', c = st().settings;
+      L.iniciar({ segundos: seg, nombre: e ? e.nombre : 'Descanso', imagen: /img\/dib\//.test(f) ? f.replace(/^.*\//, '').replace(/\.png$/, '') : '',
+        serie: h.filter(Boolean).length, total: it ? it.series.length : 0, sonido: !!c.sonido, cuenta: !!c.cuenta, silencio: !!c.enSilencio, tarjeta: c.tarjeta !== false }).catch(() => {});
     } catch (e) { /* sin tarjeta */ }
+  }
+  // Al volver a la app: si desde la pantalla de bloqueo quitaron o reiniciaron el descanso, el reloj de la app se pone igual.
+  function sincronizarMotor() {
+    try {
+      const L = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Descanso; if (!L || !L.estado) return;
+      L.estado().then(r => {
+        const t = st().timer, fin = Math.round((r && r.fin) || 0);
+        if (!fin && t.fin > Date.now() + 1500) pararTimer(true);
+        else if (fin && Math.abs(fin - t.fin) > 1500) { t.fin = fin; if (r.total) t.total = r.total; S.guardar(); if (!tickT) tickT = setInterval(tick, 200); pintarTimer(); }
+      }).catch(() => {});
+    } catch (e) { /* sin puente */ }
   }
   function iniciarTimer(seg, texto) {
     const t = st().timer;
@@ -274,7 +306,7 @@
     if (ms > 0) { pintarTimer(); return; }
     // En la app nativa, si acabó hace rato, la notificación ya sonó: no repetir el pitido.
     const yaAviso = A.nativo && -ms > 2500;
-    clearInterval(tickT); tickT = null; t.fin = 0; S.guardar(); tarjeta(0);
+    clearInterval(tickT); tickT = null; t.fin = 0; S.guardar();   // la tarjeta la quita el iPhone al sonar el final
     if (yaAviso) A.cancelar();
     else if (!A.sonoATiempo()) A.ahora();
     else { A.quitarAviso(); if (navigator.vibrate) navigator.vibrate([200, 100, 200]); }
@@ -307,7 +339,7 @@
   function filaItem(it, accion, i) {
     const e = S.ejercicio(it.ex), h = (st().active && st().active.hechos[it.uid]) || [], n = h.filter(Boolean).length;
     return '<button class="fila-in" data-a="' + accion + '" data-v="' + i + '">' + miniFoto(e) + '<span class="cuerpo"><b>' + esc(e.nombre) + '</b><span>' + esc(resumenItem(it)) + '</span></span>' +
-      (n ? '<span class="hechas' + (n >= it.series.length ? ' todas' : '') + '">' + n + '/' + it.series.length + '</span>' : '') + '</button>';
+'</button>' + (n && accion === 'ej-abrir' ? '<i class="avance-l ' + (n >= it.series.length ? 'v' : n / it.series.length <= 0.25 ? 'r' : 'a') + '" aria-label="' + n + ' de ' + it.series.length + ' series"></i>' : '');
   }
   function vHoy() {
     const s = st(), hoyN = S.diaSemana(), ver = ui.verDia || hoyN, dia = s.routine.dias[ver], a = s.active;
@@ -318,7 +350,7 @@
     }).join('') + '</div>';
     if (dia.items.length) {
       h += '<div class="lista-cab"><div><h2>Ejercicios</h2><p class="tenue chico">' + dia.items.length + ' ejercicios, unos ' + Gen.minutosDia(dia.items) + ' min' + (a ? ', ' + avance() + ' series hechas' : '') + '</p></div>' +
-        (a ? '<button class="pildora parar" data-a="ent-terminar">Terminar</button>' : '<button class="pildora" data-a="ent-empezar" data-v="' + ver + '">Iniciar</button>') + '</div>';
+        (a ? '<span class="dos-pild"><button class="pildora gris" data-a="ent-cancelar">Cancelar</button><button class="pildora parar" data-a="ent-terminar">Terminar</button></span>' : '<button class="pildora" data-a="ent-empezar" data-v="' + ver + '">Iniciar</button>') + '</div>';
       h += '<div class="tarjeta lista-ej">' + dia.items.map((it, i) => '<div class="fila">' + filaItem(it, 'ej-abrir', i) + '</div>').join('') + '</div>';
       if (ver === hoyN && registro(S.hoy()) && !a) h += '<p class="tenue chico" style="margin-top:12px">Ya registraste un entrenamiento hoy.</p>';
     } else {
@@ -349,22 +381,23 @@
       return '<div class="st-fila' + (ok && !ed ? ' hecha' : '') + (se.tipo === 'c' ? ' cal' : '') + '" data-fila="' + i + '"><span class="st-izq">' +
         (ed ? '<button class="menos" data-a="se-quitar" data-v="' + i + '" aria-label="Quitar serie">−</button>' : '') +
         '<button class="circ' + (se.tipo === 'c' ? ' cal' : '') + (ok && !ed ? ' ok' : '') + (ui.pop === i ? ' pop' : '') + '" data-a="se-circ" data-v="' + i + '" aria-label="' + (ed ? 'Cambiar tipo de serie' : 'Marcar serie') + '">' + (se.tipo === 'c' ? 'C' : numeroSerie(it.series, i)) + '</button></span>' +
-        '<input class="num' + (texto && String(se.reps).length > 7 ? ' txt' : '') + '" data-c="se-reps" data-v="' + i + '" value="' + esc(se.reps) + '" ' + (texto ? '' : 'inputmode="none" data-tec="1"') + ' aria-label="Repeticiones">' +
-        (cardio ? '<span></span>' : '<input class="num" data-c="se-peso" data-v="' + i + '" value="' + esc(se.peso) + '" inputmode="none" data-tec="1" placeholder="–" aria-label="Peso">') +
+        (ed ? '<input class="num' + (texto && String(se.reps).length > 7 ? ' txt' : '') + '" data-c="se-reps" data-v="' + i + '" value="' + esc(se.reps) + '" ' + (texto ? '' : 'inputmode="none" data-tec="1"') + ' aria-label="Repeticiones">'
+          : '<button class="num ro' + (texto && String(se.reps).length > 7 ? ' txt' : '') + '" data-a="num-editar" data-c="se-reps" data-v="' + i + '" aria-label="Repeticiones">' + esc(se.reps || '–') + '</button>') +
+        (cardio ? '<span></span>' : ed ? '<input class="num" data-c="se-peso" data-v="' + i + '" value="' + esc(se.peso) + '" inputmode="none" data-tec="1" placeholder="–" aria-label="Peso">'
+          : '<button class="num ro' + (se.peso ? '' : ' vacio') + '" data-a="num-editar" data-c="se-peso" data-v="' + i + '" aria-label="Peso">' + esc(se.peso || '–') + '</button>') +
         (ed ? '<button class="asa" data-arr="serie" aria-label="Mantén y arrastra para cambiar el orden"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14M5 12h14M5 16h14"/></svg></button>' : '') + '</div>';
     }).join('');
     if (ed) h += '<button class="st-agregar" data-a="se-agregar"><span>+</span>Agregar nueva serie</button>' +
       '<p class="tenue chico st-nota">Toca el círculo para marcar una serie como calentamiento (C). Arrastra las rayitas para cambiar el orden.</p>';
-    h += '<div class="st-desc" id="t-fila"><span>Descanso</span><button class="t-reloj' + (x.rueda ? ' abierta' : '') + '" id="t-reloj" data-a="t-rueda" aria-label="Cambiar el tiempo de descanso">' + reloj(it.rest) + '</button>' +
+    h += '<div class="st-desc" id="t-fila"><span>Descanso</span><button class="t-reloj' + (x.rueda ? ' abierta' : '') + '" id="t-reloj" data-a="' + (ed ? 't-rueda' : 'num-editar') + '" data-c="rest" aria-label="Tiempo de descanso">' + reloj(it.rest) + '</button>' +
       (ed ? '<span class="t-hueco"></span><span></span>' : '<button class="pildora suave" id="t-btn" data-a="t-toggle">Iniciar</button>') + '</div>' + (x.rueda ? rueda(it.rest) : '') + '</div>';
     if (!ed && !cardio) h += filaSugerencia(it, e);
     h += '<h2 class="sub-t">Notas</h2><textarea class="notas" data-c="ej-nota" maxlength="300" placeholder="Por ejemplo: asiento en la posición 4, 2 repeticiones de reserva">' + esc(it.nota || '') + '</textarea>';
     const ico = d => '<span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true">' + d + '</svg></span>';
-    if (ed) h += '<button class="fila-liga" data-a="it-cambiar">' + ico('<path d="M7 9h11l-3-3M17 15H6l3 3"/>') + '<span>Reemplazar ejercicio</span></button>' +
+    if (ed) h += (x.salir ? '<button class="fila-liga" data-a="it-cambiar">' + ico('<path d="M7 9h11l-3-3M17 15H6l3 3"/>') + '<span>Reemplazar ejercicio</span></button>' : '') +
       '<button class="fila-liga" data-a="ej-editar" data-id="' + esc(it.ex) + '">' + ico('<path d="M5 19l1-4L16 5l3 3L9 18z"/>') + '<span>Cambiar nombre, tips o imagen</span></button>' +
       '<button class="quitar-ej" data-a="it-quitar">Quitar ejercicio de este día</button>';
-    else h += '<button class="fila-liga" data-a="ej-progreso">' + ico('<path d="M5 16l4-4 3 3 6-7M14 8h4v4"/>') + '<span>Progreso del ejercicio</span><span class="chev">›</span></button>' +
-      '<button class="fila-liga" data-a="it-cambiar">' + ico('<path d="M7 9h11l-3-3M17 15H6l3 3"/>') + '<span>Reemplazar por otro ejercicio</span><span class="chev">›</span></button>';
+    else h += '<button class="fila-liga" data-a="ej-progreso">' + ico('<path d="M5 16l4-4 3 3 6-7M14 8h4v4"/>') + '<span>Progreso del ejercicio</span><span class="chev">›</span></button>';
     h += '</section>';
     const cuenta = '<span class="cuenta">' + (x.i + 1) + ' de ' + dia.items.length + '</span>';
     return {
@@ -373,7 +406,7 @@
           '<span class="flechas"><button data-a="ej-mover" data-v="-1" aria-label="Ejercicio anterior"' + (x.i === 0 ? ' disabled' : '') + '><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button><button data-a="ej-mover" data-v="1" aria-label="Ejercicio siguiente"' + (x.i === dia.items.length - 1 ? ' disabled' : '') + '><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></span>' +
           '<button class="redondo" data-a="ej-menu" aria-label="Más opciones"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></div>',
       html: h,
-      pie: ed ? '' : (a ? '<button class="flota gris" data-a="ent-terminar">Terminar entrenamiento</button>' : '<button class="flota" data-a="ent-empezar" data-v="' + x.dia + '">Comienza a entrenar</button>')
+      pie: ed ? '' : (a ? '<div class="flota-dos"><button class="flota gris" data-a="ent-cancelar">Cancelar</button><button class="flota gris" data-a="ent-terminar">Terminar entrenamiento</button></div>' : '<button class="flota" data-a="ent-empezar" data-v="' + x.dia + '">Comienza a entrenar</button>')
     };
   }
 
@@ -387,7 +420,7 @@
   }
 
   // ---------- Ruedita para el tiempo de descanso (máximo 5 minutos) ----------
-  const PASO_R = 38, MAX_DESC = 300;
+  const PASO_R = 32, MAX_DESC = 300;
   function rueda(seg) {
     const col = (k, vals) => '<div class="rueda-col" data-k="' + k + '"><i></i>' + vals.map(v => '<button data-a="rueda-ir" data-v="' + v + '">' + String(v).padStart(2, '0') + '</button>').join('') + '<i></i></div>';
     const mins = [0, 1, 2, 3, 4, 5], segs = []; for (let i = 0; i < 60; i += 5) segs.push(i);
@@ -516,8 +549,11 @@
   function recomendados() {
     const it = itemActual(); if (!it) return '';
     const enc = st().profile.encuesta, l = P.alternativas(it, st().routine.dias[ui.ej.dia]);
-    if (!l.length) return '';
-    return '<h3 class="pick-t">Recomendados</h3><p class="tenue chico">Trabajan lo mismo que ' + esc(S.ejercicio(it.ex).nombre) + '. Las repeticiones se ponen solas según tu objetivo.</p><div class="tarjeta lista-ej recs">' + l.map(x => {
+    const a = st().active, orig = a && a.temp && a.temp[it.uid] ? JSON.parse(a.temp[it.uid]) : null;
+    const antes = (orig ? [orig.ex] : []).concat(it.hist || [], orig ? orig.hist || [] : []).filter((x, k, t) => x !== it.ex && t.indexOf(x) === k).slice(0, 5);
+    const usados = antes.length ? '<h3 class="pick-t">Ya usaste aquí</h3><div class="tarjeta lista-ej recs">' + antes.map(id => { const e = S.ejercicio(id); return '<div class="fila"><button class="fila-in" data-a="pick-ok" data-id="' + esc(id) + '">' + miniFoto(e) + '<span class="cuerpo"><b>' + esc(e.nombre) + '</b><span>' + (orig && orig.ex === id ? 'El de tu rutina' : 'Lo cambiaste antes') + '</span></span></button></div>'; }).join('') + '</div>' : '';
+    if (!l.length) return usados;
+    return usados + '<h3 class="pick-t">Recomendados</h3><p class="tenue chico">Trabajan lo mismo que ' + esc(S.ejercicio(it.ex).nombre) + '. Las repeticiones se ponen solas según tu objetivo.</p><div class="tarjeta lista-ej recs">' + l.map(x => {
       const e = x.e, m = G.Musculos.texto(e).p.join(', '), n = Gen.nuevoItem(e, enc, ui.ej.i);
       return '<div class="fila"><button class="fila-in" data-a="pick-ok" data-id="' + esc(e.id) + '">' + miniFoto(e) + '<span class="cuerpo"><b>' + esc(e.nombre) + '</b><span>' + esc([m, P.equipo(e)].filter(Boolean).join(' · ')) + (x.conEquipo ? '' : ' · fuera de tu equipo') + '</span></span><span class="hechas">' + n.series.length + ' × ' + esc(n.series[0].reps) + '</span></button></div>';
     }).join('') + '</div><h3 class="pick-t">Todos los ejercicios</h3>';
@@ -533,14 +569,27 @@
     const nDia = ui.ej ? ui.ej.dia : ui.dia, d = st().routine.dias[nDia], e = S.ejercicio(id), pick = ui.pick || { modo: 'agregar' };
     if (pick.modo === 'cambiar' && ui.ej) {
       // El ejercicio nuevo llega con sus series y repeticiones según el objetivo; el peso lo pones tú.
-      const it = d.items[ui.ej.i], a = st().active;
+      const it = d.items[ui.ej.i];
       if (it && it.ex !== id) {
+        // Al cambiar de ejercicio desde el entrenamiento se pregunta si es solo por hoy o para siempre.
+        if (!ui.ej.salir && !pick.alcance) {
+          abrir(cabHoja('Cambiar por ' + e.nombre, 'En lugar de ' + S.ejercicio(it.ex).nombre) + '<div class="pila"><button class="btn primario" data-a="cambio-alcance" data-v="hoy" data-id="' + esc(id) + '">Solo hoy</button><button class="btn" data-a="cambio-alcance" data-v="siempre" data-id="' + esc(id) + '">De ahora en adelante</button></div>' +
+            '<p class="tenue chico" style="margin-top:12px">Solo hoy: al terminar o cancelar el entrenamiento, tu rutina vuelve a tener ' + esc(S.ejercicio(it.ex).nombre) + '. De ahora en adelante: el cambio se queda en tu rutina.</p>');
+          ui.pick = pick; return;
+        }
+        const hoy = pick.alcance === 'hoy';
+        let a = st().active;
+        if (hoy) { a = sesion(true, ui.ej.dia); a.temp = a.temp || {}; if (!a.temp[it.uid]) a.temp[it.uid] = JSON.stringify(it); }
+        else {
+          it.hist = [it.ex].concat(it.hist || []).filter((x, k, t) => x !== id && t.indexOf(x) === k).slice(0, 6);
+          if (a && a.temp) delete a.temp[it.uid];
+        }
         const n = Gen.nuevoItem(e, st().profile.encuesta, ui.ej.i);
         if (e.tipo === 'k') { n.series = [{ reps: '15 min', peso: '', tipo: 'n' }]; n.rest = 0; n.nota = ''; }
         it.ex = id; it.series = n.series; it.rest = n.rest; it.nota = n.nota;
         if (a) delete a.hechos[it.uid];
         S.tocar('routine'); cerrar(); render(false, 'fade');
-        toast('Listo: ' + e.nombre + ', ' + resumenItem(it));
+        toast((hoy ? 'Solo por hoy: ' : 'Listo: ') + e.nombre + ', ' + resumenItem(it));
         return;
       }
     } else {
@@ -680,7 +729,7 @@
 
   // ---------- Ajustes ----------
   function interruptor(k, titulo, sub) {
-    return '<label class="interruptor"><span>' + titulo + (sub ? '<small>' + sub + '</small>' : '') + '</span><input type="checkbox" data-c="aj-toggle" data-k="' + k + '"' + (st().settings[k] ? ' checked' : '') + '></label>';
+    return '<label class="interruptor"><span>' + titulo + '</span>' + (sub ? '<button type="button" class="info chica" data-a="aj-info" data-n="' + esc(titulo) + '" data-t="' + esc(sub) + '" aria-label="Qué hace">i</button>' : '') + '<input type="checkbox" data-c="aj-toggle" data-k="' + k + '"' + (st().settings[k] ? ' checked' : '') + '></label>';
   }
   function vAjustes() {
     const s = st(), p = s.profile, m = s.sync;
@@ -694,18 +743,76 @@
       cab: '<h1>Ajustes</h1>',
       html: '<div class="pila-g">' +
         '<section class="grupo sin-linea"><h2>' + esc(p.nombre) + '</h2><p>' + plan + '</p><div style="margin-top:12px"><button class="btn" data-a="aj-encuesta">' + (p.plan && p.plan.manual ? 'Hacer la encuesta' : 'Volver a hacer la encuesta') + '</button></div></section>' +
-        '<section class="grupo"><h2>Entrenamiento</h2><div class="interruptor"><span>Unidad de peso<small>Para ejercicios nuevos. En cada ejercicio la cambias tocando "Peso (lb)"</small></span><span class="seg"><button data-a="aj-unidad" data-v="lb" aria-pressed="' + (u === 'lb') + '">lb</button><button data-a="aj-unidad" data-v="kg" aria-pressed="' + (u === 'kg') + '">kg</button></span></div>' +
+        '<section class="grupo"><h2>Entrenamiento</h2><div class="interruptor"><span>Unidad de peso</span><button type="button" class="info chica" data-a="aj-info" data-n="Unidad de peso" data-t="Es la unidad para los ejercicios nuevos. En cada ejercicio la cambias tocando Peso (lb) o Peso (kg)" aria-label="Qué hace">i</button><span class="seg"><button data-a="aj-unidad" data-v="lb" aria-pressed="' + (u === 'lb') + '">lb</button><button data-a="aj-unidad" data-v="kg" aria-pressed="' + (u === 'kg') + '">kg</button></span></div>' +
         interruptor('autoDescanso', 'Iniciar el descanso al marcar una serie', 'Si lo apagas, el descanso solo empieza cuando tocas Iniciar') + '</section>' +
         '<section class="grupo"><h2>Rutina con IA</h2><p>' + (IA.listo() ? 'Conectada con ' + IA.PROVEEDORES[IA.config().proveedor].nombre + '.' : 'Opcional. Toca la estrellita en la pantalla Rutina para armar o ajustar tu semana con Gemini (gratis) o Claude.') + '</p><div style="margin-top:12px"><button class="btn" data-a="ia-config-aj">' + (IA.listo() ? 'Cambiar clave o servicio' : 'Configurar la IA') + '</button></div></section>' +
         '<section class="grupo"><h2>Google Drive</h2>' + drive + '</section>' +
-        '<section class="grupo"><h2>Pitido del descanso</h2>' + interruptor('sonido', 'Sonar al terminar el descanso') + interruptor('cuenta', 'Avisar 3, 2, 1 antes') + interruptor('enSilencio', 'Sonar aunque el iPhone esté en silencio', 'Puede pausar tu música mientras suena') + '<div style="margin-top:8px"><button class="btn" data-a="aj-probar">Probar el pitido</button></div></section>' +
+        '<section class="grupo"><h2>Pitido del descanso</h2>' + interruptor('sonido', 'Sonar al terminar el descanso', 'Al acabar el descanso suena un aviso y el teléfono vibra') + interruptor('cuenta', 'Avisar 3, 2, 1 antes', 'Tres pitidos cortos en los últimos 3 segundos y uno más largo al terminar') + interruptor('enSilencio', 'Sonar aunque el iPhone esté en silencio', 'El aviso suena aunque tengas el interruptor de silencio puesto. Se mezcla con lo que estés escuchando') + '<div style="margin-top:8px"><button class="btn" data-a="aj-probar">Probar el pitido</button></div></section>' +
         '<section class="grupo"><h2>Pantalla</h2>' + interruptor('pantalla', 'Mantener la pantalla encendida al entrenar', D.nativo ? 'Si bloqueas el iPhone, el aviso llega como notificación con sonido' : 'Con el iPhone bloqueado el pitido no puede sonar') +
           (D.nativo ? interruptor('tarjeta', 'Mostrar el descanso en la pantalla de bloqueo', 'Aparece debajo de lo que estés escuchando y se quita sola al terminar. Necesita iOS 16.2 o más nuevo') : '') + '</section>' +
         '<section class="grupo"><h2>Uso sin internet</h2><p id="aj-fotos">Revisando dibujos guardados…</p>' + (D.nativo ? '' : '<div style="margin-top:12px"><button class="btn" data-a="aj-fotos">Descargar todos los dibujos</button></div>') + '</section>' +
         '<section class="grupo"><h2>Créditos</h2><p>Dibujos de los ejercicios: Everkinetic (everkinetic.com), licencia CC BY-SA 4.0, adaptados a fondo oscuro. Los de cardio son propios de esta app.</p></section>' +
-        '<section class="grupo"><h2>Tus datos</h2><div class="pila"><button class="btn" data-a="aj-exportar">Descargar una copia</button><button class="btn peligro" data-a="aj-borrar">Borrar todo de este teléfono</button></div></section></div>',
+        '<section class="grupo"><h2>Tus datos</h2><div class="pila"><button class="btn" data-a="aj-texto">Exportar mi rutina como texto</button><button class="btn" data-a="aj-importar">Importar una rutina de texto</button><button class="btn" data-a="aj-exportar">Descargar una copia completa</button><button class="btn peligro" data-a="aj-borrar">Borrar todo de este teléfono</button></div></section></div>',
       tabs: true
     };
+  }
+  // ---------- Rutina como texto: para compartirla o pasarla de otra app ----------
+  // Formato: una línea por día ("Lunes: Torso A") y una por ejercicio ("1. Press de banca: 4 x 8, 55 lb, descanso 2:00").
+  function rutinaTexto() {
+    const s = st(), l = [(s.profile.plan && s.profile.plan.titulo) || 'Mi rutina', ''];
+    DIAS.forEach((nombre, i) => {
+      const d = s.routine.dias[i + 1]; if (!d.items.length) return;
+      l.push(nombre + ': ' + d.nombre);
+      d.items.forEach((it, k) => {
+        const e = S.ejercicio(it.ex), n = it.series.filter(x => x.tipo !== 'c'), c = it.series.length - n.length, reps = n.map(x => x.reps), pesos = n.map(x => x.peso).filter(Boolean);
+        const igual = t => t.every(x => x === t[0]);
+        let t = (k + 1) + '. ' + e.nombre + ': ' + (reps.length ? (igual(reps) ? n.length + ' x ' + reps[0] : reps.join(', ')) : '');
+        if (pesos.length) t += ', ' + (igual(pesos) && pesos.length === n.length ? pesos[0] : pesos.join('/')) + ' ' + uni(it);
+        if (it.rest) t += ', descanso ' + reloj(it.rest).replace(/^0/, '');
+        if (c) t += ', ' + c + ' de calentamiento';
+        l.push(t);
+      });
+      l.push('');
+    });
+    return l.join('\n').trim();
+  }
+  function hojaTexto() {
+    abrir(cabHoja('Mi rutina en texto', 'Para mandarla por mensaje o guardarla en tus notas') + '<textarea id="tx" class="notas texto" readonly>' + esc(rutinaTexto()) + '</textarea>' +
+      '<div class="pila" style="margin-top:12px"><button class="btn primario" data-a="tx-copiar">Copiar</button>' + (navigator.share ? '<button class="btn" data-a="tx-compartir">Compartir</button>' : '') + '</div>');
+  }
+  function hojaImportar() {
+    abrir(cabHoja('Importar una rutina', 'Pega el texto: una línea por día y una por ejercicio') + '<textarea id="tx" class="notas texto" placeholder="Martes: Pierna&#10;1. Prensa de piernas: 4 x 11, 130 lb, descanso 1:30&#10;2. Jalón al pecho: 4 x 10, 65 lb"></textarea>' +
+      '<p class="tenue chico" style="margin:8px 2px 12px">Los días que vengan en el texto reemplazan a los de tu rutina; los demás se quedan igual. Si un ejercicio no está en la lista de la app, se crea como ejercicio tuyo.</p><button class="btn primario" data-a="tx-importar">Importar</button>');
+  }
+  const sinAcentos = t => String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  function importarTexto(texto) {
+    const s = st(), dias = {}, todos = S.todos(); let d = 0, nuevos = 0, n = 0;
+    String(texto || '').split(/\r?\n/).forEach(linea => {
+      const t = linea.trim(); if (!t) return;
+      const md = /^(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\s*[:\-–]?\s*(.*)$/i.exec(t);
+      if (md) { d = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'].indexOf(sinAcentos(md[1])) + 1; dias[d] = { nombre: md[2].trim() || DIAS[d - 1], items: [] }; return; }
+      const me = /^(?:\d+[.)]\s*|[-•*]\s*)?([^:]+?)(?::\s*(.*))?$/.exec(t);
+      if (!d || !me || !me[1].trim()) return;
+      const nombre = me[1].trim(), resto = me[2] || '', clave = sinAcentos(nombre);
+      let e = todos.find(x => sinAcentos(x.nombre) === clave) || todos.find(x => sinAcentos(x.nombre).indexOf(clave) >= 0 || clave.indexOf(sinAcentos(x.nombre)) >= 0);
+      if (!e) { e = { id: 'p' + Date.now().toString(36) + (nuevos++), nombre, grupo: 'otro', tips: [], tipo: 'i', foto: '', propio: true }; s.custom.items.push(e); todos.push(e); }
+      const sx = /(\d+)\s*(?:x|×|series?\s*(?:de|,)?)\s*(\d+(?:\s*-\s*\d+)?(?:\s*(?:min|s|seg))?)/i.exec(resto), lista = !sx && /^\s*(\d+(?:\s*,\s*\d+)+)/.exec(resto);
+      const mp = /(\d+(?:[.,]\d+)?(?:\/\d+(?:[.,]\d+)?)*)\s*(lbs?|kg|kilos?|libras?)/i.exec(resto), mr = /descanso\s*(\d+):(\d{2})/i.exec(resto) || /descanso\s*(\d+)\s*(s|seg|min)/i.exec(resto), mc = /(\d+)\s*de\s*calentamiento/i.exec(resto), mt = /^\s*(\d+\s*min)/i.exec(resto);
+      const reps = lista ? lista[1].split(',').map(x => x.trim()) : sx ? Array(Math.min(12, +sx[1])).fill(sx[2].replace(/\s+/g, ' ').replace(/^(\d+)\s*-\s*(\d+)$/, '$2')) : mt ? [mt[1]] : ['10', '10', '10'];
+      const pesos = mp ? mp[1].replace(/,/g, '.').split('/') : [];
+      const it = { uid: Gen.uid(), ex: e.id, rest: mr ? (mr[2] && /^\d{2}$/.test(mr[2]) ? +mr[1] * 60 + +mr[2] : /min/i.test(mr[2]) ? +mr[1] * 60 : +mr[1]) : (mt ? 0 : 90), nota: '', series: [] };
+      if (mp) it.u = /^k/i.test(mp[2]) ? 'kg' : 'lb';
+      for (let k = 0; k < (mc ? Math.min(4, +mc[1]) : 0); k++) it.series.push({ reps: reps[0], peso: '', tipo: 'c' });
+      reps.forEach((r, k) => it.series.push({ reps: r, peso: pesos.length ? (pesos[k] || pesos[pesos.length - 1]) : '', tipo: 'n' }));
+      it.rest = Math.min(MAX_DESC, it.rest);
+      dias[d].items.push(it); n++;
+    });
+    const lista = Object.keys(dias).filter(k => dias[k].items.length);
+    if (!lista.length) { toast('No encontré días ni ejercicios en ese texto'); return; }
+    lista.forEach(k => { s.routine.dias[k] = Object.assign({}, s.routine.dias[k], { nombre: dias[k].nombre, items: dias[k].items }); });
+    if (nuevos) S.tocar('custom');
+    S.tocar('routine'); cerrar(); ui.tab = 'rutina'; ui.dia = null; render();
+    toast(n + ' ejercicios en ' + lista.length + (lista.length === 1 ? ' día' : ' días') + (nuevos ? ', ' + nuevos + ' nuevos' : ''));
   }
   function urlsFotos() { const u = {}; G.EXERCISES.forEach(e => S.fotos(e).forEach(x => { u[x] = 1; })); return Object.keys(u); }
   async function contarFotos() {
@@ -858,6 +965,7 @@
       if (abre) ui.ej = { dia: d, i: 0, editar: false };
       render(!abre, 'der');
     },
+    'ent-cancelar'() { confirmar('¿Cancelar el entrenamiento?', 'No se guarda nada de hoy: las series que marcaste se desmarcan y no cuenta en el calendario.', 'Cancelar entrenamiento', cancelarEntrenamiento, true); },
     'ent-terminar'() { confirmar('¿Terminar el entrenamiento?', 'Se guardan en el calendario las series que marcaste.', 'Guardar y terminar', terminar); },
 
     // Pantalla de un ejercicio
@@ -873,6 +981,21 @@
       document.body.appendChild(m);
     },
     'menu-cambiar'() { hojaPick('cambiar'); },
+    // Fuera de "Editar" los números no se cambian: al tocarlos sale un botoncito "Editar" encima.
+    'num-editar'(el) {
+      quitarBurbuja();
+      const b = document.createElement('button'), r = el.getBoundingClientRect(), v = vista.getBoundingClientRect();
+      b.className = 'burbuja'; b.dataset.a = 'num-ir'; b.dataset.c = el.dataset.c; b.dataset.v = el.dataset.v || ''; b.textContent = 'Editar';
+      b.style.left = (r.left + r.width / 2 - v.left) + 'px'; b.style.top = (r.top - v.top + vista.scrollTop - 4) + 'px';
+      vista.appendChild(b); toque('sel');
+      clearTimeout(burT); burT = setTimeout(quitarBurbuja, 2800);
+    },
+    'num-ir'(el) {
+      const c = el.dataset.c, v = el.dataset.v; quitarBurbuja();
+      ui.ej.editar = true; ui.ej.rueda = c === 'rest'; ui.ej.copia = copiaItem(); render(false, 'fade');
+      const o = c === 'rest' ? $('#t-fila') : vista.querySelector('input[data-c="' + c + '"][data-v="' + v + '"]');
+      if (o && c !== 'rest') o.focus(); else if (o) o.scrollIntoView({ block: 'center' });
+    },
     'ej-modo'() { ui.ej.editar = true; ui.ej.rueda = false; ui.ej.copia = copiaItem(); render(); },
     'ej-guardar-ed'() { S.tocar('routine'); finEdicion(); toast('Cambios guardados'); },
     'ej-cancelar'() {
@@ -907,6 +1030,9 @@
       if (corriendo()) { pararTimer(true); return; }
       if (!it.rest) { toast('Toca el tiempo para ponerle descanso'); return; }
       A.preparar(); A.permiso();
+      // Iniciar el descanso da por hecha la siguiente serie pendiente, en orden.
+      const a = sesion(true, ui.ej.dia), h = a.hechos[it.uid] || (a.hechos[it.uid] = []), i = it.series.findIndex((x, k) => !h[k]);
+      if (i >= 0) { h[i] = true; S.guardar(); ui.pop = i; render(true); toque('fuerte'); }
       iniciarTimer(it.rest, 'Sigue: ' + S.ejercicio(it.ex).nombre);
     },
     't-rueda'() { ui.ej.rueda = !ui.ej.rueda; render(true); },
@@ -972,6 +1098,7 @@
     'it-agregar'() { hojaPick('agregar'); },
     'pick-g'(el) { ui.grupo = el.dataset.v; hoja.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.v === ui.grupo))); $('#pick-lista').innerHTML = listaPick(); },
     'pick-ok'(el) { ponerEjercicio(el.dataset.id); },
+    'cambio-alcance'(el) { ui.pick = { modo: 'cambiar', alcance: el.dataset.v }; ponerEjercicio(el.dataset.id); },
     'ej-nuevo'() { hojaEditarEj(null); },
     'ej-editar'(el) { hojaEditarEj(el.dataset.id); },
     async 'ej-guardar'(el) {
@@ -1010,13 +1137,21 @@
     // Ajustes
     'aj-encuesta'() { acciones.encuesta(); },
     'aj-unidad'(el) { st().settings.unidad = el.dataset.v; S.tocar('settings'); render(true); },
-    'aj-probar'() { const s = st().settings; if (!s.sonido) { toast('Activa primero el pitido'); return; } if (!A.ahora()) toast('Este navegador no puede reproducir el pitido'); },
+    'aj-probar'() { const s = st().settings; if (!s.sonido) { toast('Activa primero el pitido'); return; }
+      if (A.motor) { window.Capacitor.Plugins.Descanso.probar({ silencio: !!s.enSilencio }).catch(() => {}); return; } if (!A.ahora()) toast('Este navegador no puede reproducir el pitido'); },
     'aj-fotos'() { bajarFotos(true); },
     'aj-exportar'() {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([JSON.stringify(S.paquete(), null, 2)], { type: 'application/json' }));
       a.download = 'gym-' + S.hoy() + '.json'; document.body.appendChild(a); a.click(); a.remove();
     },
+    'aj-info'(el) { abrir(cabHoja(el.dataset.n) + '<p>' + esc(el.dataset.t) + '.</p>'); },
+    'aj-texto'() { hojaTexto(); },
+    'aj-importar'() { hojaImportar(); },
+    'tx-copiar'() { const t = $('#tx'); t.select(); try { navigator.clipboard.writeText(t.value).then(() => toast('Copiado'), () => { document.execCommand('copy'); toast('Copiado'); }); } catch (e) { document.execCommand('copy'); toast('Copiado'); } },
+    'tx-compartir'() { navigator.share({ title: 'Mi rutina', text: $('#tx').value }).catch(() => {}); },
+    'tx-importar'() { importarTexto($('#tx').value); },
+    'tec-listo'() { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); },
     'aj-borrar'() { confirmar('¿Borrar todo de este teléfono?', 'Se borran tu rutina y tu calendario de este teléfono. Lo que ya esté en Google Drive se queda ahí.', 'Borrar todo', () => { pararTimer(true); D.salir(); S.borrarTodo(); ui.tab = 'hoy'; ui.ej = null; render(); }, true); },
     'dr-conectar'() { D.entrar(false, 'sync'); },
     'dr-sync'() { sincronizar(true); },
@@ -1115,6 +1250,10 @@
     setTimeout(() => { const a = document.activeElement; if (!a || !a.classList || !a.classList.contains('num')) { quitarTodas(); if (campo) tecCerrar(); } }, 0);
   });
 
+  let burT = null;
+  function quitarBurbuja() { clearTimeout(burT); vista.querySelectorAll('.burbuja').forEach(n => n.remove()); }
+  document.addEventListener('click', ev => { if (!ev.target.closest || !ev.target.closest('.burbuja, [data-a="num-editar"]')) quitarBurbuja(); }, true);
+
   // ---------- Arrastrar para cambiar el orden (series y ejercicios) ----------
   let arr = null;
   function moverArr(ev) {
@@ -1197,6 +1336,7 @@
   document.addEventListener('dblclick', ev => ev.preventDefault());
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
+    sincronizarMotor();
     if (st().active) A.pantalla(true);
     if (corriendo()) tick(); else automatico();
   });
@@ -1219,6 +1359,8 @@
     }).catch(e => console.warn('Sin modo offline:', e));
   }
   if (st().settings.tarjeta === undefined) st().settings.tarjeta = true;
+  // Sin la barra de flechitas de Apple sobre el teclado: la app pone su propio botón "Listo".
+  try { const K = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Keyboard; if (K && K.setAccessoryBarVisible) K.setAccessoryBarVisible({ isVisible: false }).catch(() => {}); } catch (e) { /* navegador */ }
   render();
   // Pantalla de carga: se queda un momento y se va con una transición.
   const carga = $('#carga');
