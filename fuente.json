@@ -17,11 +17,11 @@
       "screenshots": [],
       "versions": [
         {
-          "version": "1.4.0",
+          "version": "1.5.0",
           "date": "2026-11-26",
-          "localizedDescription": "El descanso aparece en la pantalla de bloqueo y se quita solo al terminar (iOS 16.2 o más nuevo). Al instalar, conserva las extensiones de la app. Incluye lo de la 1.3: teclado propio, cambiar todas las series, arrastrar para ordenar y transiciones.",
+          "localizedDescription": "Descanso en la isla dinámica y en la pantalla de bloqueo con dibujo y botones; suena aunque el iPhone esté en silencio, con 3, 2, 1. Números editables solo desde Editar, cancelar entrenamiento, línea de avance por ejercicio, cambiar un ejercicio solo por hoy, exportar e importar la rutina como texto.",
           "downloadURL": "https://github.com/Marii0/mi-gym/releases/download/ios/MiGym.ipa",
-          "size": 7731220,
+          "size": 9843579,
           "minOSVersion": "14.0"
         }
       ],
