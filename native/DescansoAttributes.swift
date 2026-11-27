@@ -11,5 +11,6 @@ struct DescansoAttributes: ActivityAttributes {
         var total: Int     // series del ejercicio
     }
     var nombre: String     // ejercicio
+    var imagen: String     // dibujo del ejercicio (nombre del archivo, sin ".png"); vacío si no tiene
 }
 #endif

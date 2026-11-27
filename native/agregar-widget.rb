@@ -22,8 +22,13 @@ x = File.read(plist)
 unless x.include?('NSSupportsLiveActivities')
   fin = x.rindex('</dict>')
   x = x[0...fin] + "\t<key>NSSupportsLiveActivities</key>\n\t<true/>\n" + x[fin..]
-  File.write(plist, x)
 end
+# Audio en segundo plano: mantiene viva la app durante el descanso para sonar y quitar la tarjeta a tiempo.
+unless x.include?('UIBackgroundModes')
+  fin = x.rindex('</dict>')
+  x = x[0...fin] + "\t<key>UIBackgroundModes</key>\n\t<array>\n\t\t<string>audio</string>\n\t</array>\n" + x[fin..]
+end
+File.write(plist, x)
 
 proj = Xcodeproj::Project.open(File.join(dir, 'App.xcodeproj'))
 app = proj.targets.find { |t| t.name == 'App' }
@@ -35,21 +40,38 @@ end
 
 # 1. Archivos de la app
 grupo = proj.main_group['App']
-refs = %w[DescansoAttributes.swift DescansoPlugin.swift].map do |f|
+refs = %w[DescansoAttributes.swift DescansoIntents.swift DescansoMotor.swift DescansoPlugin.swift].map do |f|
   FileUtils.cp(File.join(fuentes, f), File.join(dir, 'App', f))
   grupo.new_file(f)
 end
 app.add_file_references(refs)
+sonidos = %w[cuenta.wav fin.wav].map do |f|
+  FileUtils.cp(File.join(fuentes, f), File.join(dir, 'App', f))
+  grupo.new_file(f)
+end
+app.add_resources(sonidos)
 
 # 2. Widget
 wdir = File.join(dir, 'MiGymWidget')
 FileUtils.mkdir_p(wdir)
-%w[MiGymWidget.swift DescansoAttributes.swift].each { |f| FileUtils.cp(File.join(fuentes, f), File.join(wdir, f)) }
+%w[MiGymWidget.swift DescansoAttributes.swift DescansoIntents.swift icono-isla.png].each { |f| FileUtils.cp(File.join(fuentes, f), File.join(wdir, f)) }
+# Dibujos de los ejercicios para la tarjeta, en chico (iOS no dibuja imágenes grandes en la pantalla de bloqueo).
+dib = File.join(wdir, 'dib')
+FileUtils.mkdir_p(dib)
+Dir.glob(File.join(aqui, '..', 'www', 'img', 'dib', '*-0.png')).each do |f|
+  destino = File.join(dib, File.basename(f))
+  ok = system('sips', '-s', 'format', 'png', '-Z', '216', f, '--out', destino, out: File::NULL, err: File::NULL)
+  FileUtils.rm_f(destino) unless ok
+end
+puts "Dibujos para el widget: #{Dir.glob(File.join(dib, '*.png')).length}"
 FileUtils.cp(File.join(fuentes, 'widget-Info.plist'), File.join(wdir, 'Info.plist'))
 w = proj.new_target(:app_extension, 'MiGymWidget', :ios, '16.2', nil, :swift)
 w.frameworks_build_phase.clear
 g = proj.main_group.new_group('MiGymWidget', 'MiGymWidget')
-w.add_file_references([g.new_file('MiGymWidget.swift'), g.new_file('DescansoAttributes.swift')])
+w.add_file_references([g.new_file('MiGymWidget.swift'), g.new_file('DescansoAttributes.swift'), g.new_file('DescansoIntents.swift')])
+carpeta = g.new_file('dib')
+carpeta.last_known_file_type = 'folder'
+w.add_resources([g.new_file('icono-isla.png'), carpeta])
 g.new_file('Info.plist')
 
 base = app.build_configurations.first.build_settings
@@ -69,6 +91,7 @@ w.build_configurations.each do |c|
   s['CODE_SIGN_STYLE'] = 'Automatic'
   s['SKIP_INSTALL'] = 'YES'
   s['APPLICATION_EXTENSION_API_ONLY'] = 'YES'
+  s['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = '$(inherited) WIDGET'
   s['LD_RUNPATH_SEARCH_PATHS'] = ['$(inherited)', '@executable_path/Frameworks', '@executable_path/../../Frameworks']
 end
 
